@@ -130,7 +130,7 @@ try {
         }
     }
 
-    # Sum Total Goals
+    # Sum Total Goals for UI display (they get re-calculated on save anyway)
     foreach ($cat in $allCats) {
         $sum = 0
         foreach ($c in @("White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")) {
@@ -257,13 +257,14 @@ try {
 
     function AddRow($panel, $color, $category) {
         $key = "${color}_${category}"
+        $isTypeCategory = ($types -contains $category)
         
         $grid = New-Object System.Windows.Controls.Grid
         $grid.Margin = "0,2,0,2"
         $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(120)}))
         $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(150)}))
         $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(70)}))
-        $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(60)}))
+        $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(50)}))
         $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(40)}))
         
         $lbl = New-Object System.Windows.Controls.TextBlock
@@ -312,7 +313,8 @@ try {
         $box.HorizontalAlignment = "Left"
         $box.VerticalAlignment = "Center"
         
-        if ($color -eq "Total Set") {
+        # Read-only state
+        if ($color -eq "Total Set" -or ($color -ne "Baseline" -and -not $isTypeCategory)) {
             $box.IsReadOnly = $true
             $box.Background = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#222")
             $box.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#888")
@@ -322,15 +324,23 @@ try {
         $grid.Children.Add($box)
         $goalBoxes[$key] = $box
 
-        # Lock Button
-        if ($color -ne "Baseline" -and $color -ne "Total Set") {
+        # Lock Button or Percent Label
+        if ($color -eq "Baseline" -and -not $isTypeCategory) {
+            $lblPct = New-Object System.Windows.Controls.TextBlock
+            $lblPct.Text = "%"
+            $lblPct.Foreground = "#888"
+            $lblPct.VerticalAlignment = "Center"
+            $lblPct.Margin = "5,0,0,0"
+            [System.Windows.Controls.Grid]::SetColumn($lblPct, 4)
+            $grid.Children.Add($lblPct)
+        }
+        elseif ($color -ne "Baseline" -and $color -ne "Total Set" -and $isTypeCategory) {
             $btnLock = New-Object System.Windows.Controls.Primitives.ToggleButton
             $btnLock.Width = 24
             $btnLock.Height = 24
             $btnLock.HorizontalAlignment = "Left"
             $btnLock.IsChecked = $locks[$key]
             
-            # Content string based on state
             if ($locks[$key]) { $btnLock.Content = "??"; $btnLock.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#FFF") } 
             else { $btnLock.Content = "??"; $btnLock.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#666") }
             
@@ -358,7 +368,7 @@ try {
         
         if ($c -eq "Baseline") {
             $desc = New-Object System.Windows.Controls.TextBlock
-            $desc.Text = "Goals set here will be automatically applied to White, Blue, Black, Red, and Green. (Colorless and Multicolor are excluded)."
+            $desc.Text = "Types are raw card counts applied to WUBRG colors. MV and Rarity are percentages applied to the total size of each color across all tabs."
             $desc.Foreground = "#888"
             $desc.TextWrapping = "Wrap"
             $desc.Margin = "0,0,0,10"
@@ -376,38 +386,64 @@ try {
     }
 
     $window.FindName("BtnSave").add_Click({
-        # First read the baseline values
+        # 1. Read Baseline values
         $baseline = @{}
         foreach ($cat in $allCats) {
             $val = 0
             if ([int]::TryParse($goalBoxes["Baseline_${cat}"].Text, [ref]$val)) {
                 $baseline[$cat] = $val
+                $goals["Baseline_${cat}"] = $val
             }
         }
         
-        # Read lock states first
+        # 2. Read lock states and manually entered Type goals
         foreach ($key in $lockBoxes.Keys) {
             $locks[$key] = $lockBoxes[$key].IsChecked
             $goals["${key}_Locked"] = $locks[$key]
         }
-
-        # Update colors from baseline if they were modified just now
-        foreach ($cat in $allCats) {
-            if ($baseline[$cat] -ne $goals["Baseline_${cat}"]) {
-                foreach ($c in @("White", "Blue", "Black", "Red", "Green")) {
-                    if (-not $locks["${c}_${cat}"]) {
-                        $goalBoxes["${c}_${cat}"].Text = $baseline[$cat].ToString()
-                    }
+        foreach ($c in @("White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")) {
+            foreach ($t in $types) {
+                $val = 0
+                if ([int]::TryParse($goalBoxes["${c}_${t}"].Text, [ref]$val)) {
+                    $goals["${c}_${t}"] = $val
                 }
             }
         }
 
-        # Read all textboxes and update goals
-        foreach ($key in $goalBoxes.Keys) {
-            $val = 0
-            if ([int]::TryParse($goalBoxes[$key].Text, [ref]$val)) {
-                $goals[$key] = $val
+        # 3. Apply Baseline Types to WUBRG (if not locked)
+        foreach ($t in $types) {
+            foreach ($c in @("White", "Blue", "Black", "Red", "Green")) {
+                if (-not $locks["${c}_${t}"]) {
+                    $goals["${c}_${t}"] = $baseline[$t]
+                }
             }
+        }
+
+        # 4. Calculate total sizes per color (from Type goals)
+        $colorSizes = @{}
+        foreach ($c in @("White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")) {
+            $colorSizes[$c] = 0
+            foreach ($t in $types) {
+                $colorSizes[$c] += $goals["${c}_${t}"]
+            }
+        }
+
+        # 5. Apply Baseline Percentages to MV and Rarities for ALL colors based on their size
+        foreach ($cat in ($mvs + $rarities)) {
+            $pct = $baseline[$cat]
+            foreach ($c in @("White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")) {
+                $calc = [math]::Round($colorSizes[$c] * ($pct / 100))
+                $goals["${c}_${cat}"] = $calc
+            }
+        }
+
+        # 6. Calculate Total Set tab sums
+        foreach ($cat in $allCats) {
+            $sum = 0
+            foreach ($c in @("White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")) {
+                $sum += $goals["${c}_${cat}"]
+            }
+            $goals["Total Set_${cat}"] = $sum
         }
         
         # Save to file
