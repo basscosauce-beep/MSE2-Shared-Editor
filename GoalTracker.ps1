@@ -19,7 +19,7 @@ try {
     $goalsFile = "$($setFile.DirectoryName)\goals_$($setFile.BaseName).json"
 
     # Data Model
-    $colors = @("Baseline", "Total Set", "White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")
+    $colors = @("Total Set", "Baseline", "White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")
     $types = @("Creatures", "Enchantments", "Instants/Sorceries", "Artifacts", "Lands")
     $mvs = @("MV 0", "MV 1", "MV 2", "MV 3", "MV 4", "MV 5+")
     $rarities = @("Common", "Uncommon", "Rare", "Mythic Rare")
@@ -130,7 +130,7 @@ try {
         }
     }
 
-    # Sum Total Goals for UI display (they get re-calculated on save anyway)
+    # Sum Total Goals for UI display
     foreach ($cat in $allCats) {
         $sum = 0
         foreach ($c in @("White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")) {
@@ -205,7 +205,7 @@ try {
         </Grid.RowDefinitions>
         
         <StackPanel Grid.Row="0" Margin="0,0,0,15">
-            <TextBlock Text="?? Set Goal Tracker" FontSize="20" FontWeight="Bold" />
+            <TextBlock Text="[ Set Goal Tracker ]" FontSize="20" FontWeight="Bold" />
             <TextBlock Text="$totalCards cards total  ·  Last refresh: $(Get-Date -Format 'HH:mm:ss')" FontSize="12" Foreground="#AAA" Margin="0,5,0,0" />
         </StackPanel>
         
@@ -213,14 +213,14 @@ try {
 "@
 
     $emojis = @{
-        "Baseline" = "???"; "Total Set" = "??"; "White" = "?"; "Blue" = "??"; 
-        "Black" = "?"; "Red" = "??"; "Green" = "??"; "Colorless" = "?"; "Multicolor" = "??"
+        "Baseline" = "[ Baseline ]"; "Total Set" = "[ Total Set ]"; "White" = "W White"; "Blue" = "U Blue"; 
+        "Black" = "B Black"; "Red" = "R Red"; "Green" = "G Green"; "Colorless" = "C Colorless"; "Multicolor" = "M Multicolor"
     }
 
     foreach ($c in $colors) {
         $cNameEscaped = $c -replace " ", "_"
         $xaml += @"
-            <TabItem Header="$($emojis[$c]) $c">
+            <TabItem Header="$($emojis[$c])">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Name="Panel_${cNameEscaped}" />
                 </ScrollViewer>
@@ -232,9 +232,9 @@ try {
         </TabControl>
         
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
-            <TextBlock Name="SavedMsg" Text="? Saved" Foreground="#4CAF50" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Hidden"/>
-            <Button Name="BtnRefresh" Content="? Refresh" />
-            <Button Name="BtnSave" Content="?? Save Goals" />
+            <TextBlock Name="SavedMsg" Text="Saved!" Foreground="#4CAF50" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Hidden"/>
+            <Button Name="BtnRefresh" Content="Refresh" />
+            <Button Name="BtnSave" Content="Save Goals" />
         </StackPanel>
     </Grid>
 </Window>
@@ -265,7 +265,7 @@ try {
         $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(150)}))
         $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(70)}))
         $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(50)}))
-        $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(40)}))
+        $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(60)}))
         
         $lbl = New-Object System.Windows.Controls.TextBlock
         $lbl.Text = $category
@@ -336,20 +336,21 @@ try {
         }
         elseif ($color -ne "Baseline" -and $color -ne "Total Set" -and $isTypeCategory) {
             $btnLock = New-Object System.Windows.Controls.Primitives.ToggleButton
-            $btnLock.Width = 40
-            $btnLock.Height = 24
+            $btnLock.Width = 50
+            $btnLock.Height = 22
             $btnLock.HorizontalAlignment = "Left"
             $btnLock.IsChecked = $locks[$key]
+            $btnLock.FontSize = 10
             
-            if ($locks[$key]) { $btnLock.Content = "??"; $btnLock.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#FFF") } 
-            else { $btnLock.Content = "??"; $btnLock.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#666") }
+            if ($locks[$key]) { $btnLock.Content = "Locked"; $btnLock.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#FFF") } 
+            else { $btnLock.Content = "Unlock"; $btnLock.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#666") }
             
             $btnLock.add_Click({
                 if ($this.IsChecked -eq $true) {
-                    $this.Content = "??"
+                    $this.Content = "Locked"
                     $this.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#FFF")
                 } else {
-                    $this.Content = "??"
+                    $this.Content = "Unlock"
                     $this.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#666")
                 }
             })
@@ -464,4 +465,3 @@ try {
 } catch {
     [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Goal Tracker Error")
 }
-
