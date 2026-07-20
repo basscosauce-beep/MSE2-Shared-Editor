@@ -16,7 +16,7 @@ if (Test-Path $creatorFile) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Account Settings" Height="220" Width="380"
+        Title="Account Settings" Height="280" Width="380"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
         Background="#1a1a2e">
     <Window.Resources>
@@ -44,7 +44,7 @@ if (Test-Path $creatorFile) {
             </Setter>
         </Style>
     </Window.Resources>
-    <StackPanel Margin="30,24,30,24">
+    <StackPanel Margin="30,20,30,20">
         <TextBlock Text="MTG Card Editor" FontSize="11" Foreground="#888" FontFamily="Segoe UI" Margin="0,0,0,2"/>
         <TextBlock Text="Account Settings" FontSize="20" FontWeight="Bold" Foreground="White" FontFamily="Segoe UI" Margin="0,0,0,20"/>
         <TextBlock Text="Your name / initials" FontSize="12" Foreground="#aaa" FontFamily="Segoe UI" Margin="0,0,0,6"/>
