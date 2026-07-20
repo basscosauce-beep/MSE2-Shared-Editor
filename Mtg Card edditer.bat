@@ -1,33 +1,70 @@
 @echo off
 setlocal
 echo ==================================================
-echo      MAGIC SET EDITOR 2 - SHARED CLOUD INSTALLER
+echo   MTG Card Editor - Install / Update
 echo ==================================================
 echo.
 
 set "INSTALL_DIR=%LOCALAPPDATA%\MSE2_Shared_Cloud"
 set "SHORTCUT_PATH=%USERPROFILE%\Desktop\Magic Set Editor (Shared).lnk"
+set "REPO_ZIP=https://github.com/basscosauce-beep/MSE2-Shared-Editor/archive/refs/heads/main.zip"
+set "TEMP_ZIP=%TEMP%\mse2_update.zip"
+set "TEMP_DIR=%TEMP%\mse2_update_%RANDOM%"
 
-echo Installing to: %INSTALL_DIR%
+:: ---- If already installed, just update the app files and launch ----
+if exist "%INSTALL_DIR%\MSE2\magicseteditor.exe" (
+    echo Checking GitHub for updates...
+    set "PATH=%INSTALL_DIR%\mingit\cmd;%PATH%"
+    set "GIT_TERMINAL_PROMPT=0"
+    cd /d "%INSTALL_DIR%"
+    git pull origin main >nul 2>&1
+    echo Done! Launching...
+    goto :launch
+)
+
+:: ---- First time install: download full package from GitHub ----
+echo First time setup - downloading from GitHub...
+echo (This will take a few minutes - please wait)
 echo.
 
-:: Create installation directory if it doesn't exist
-if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
+mkdir "%TEMP_DIR%" >nul 2>&1
+powershell -Command "& { $ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri '%REPO_ZIP%' -OutFile '%TEMP_ZIP%' }"
 
-:: Copy all files from the current directory (where the installer is) to the install dir
-:: Exclude the installer itself so we don't copy it needlessly
-echo Copying files...
-xcopy /E /Y /I /Q /H ".\MSE2" "%INSTALL_DIR%\MSE2" >nul
-xcopy /E /Y /I /Q /H ".\SyncEngine" "%INSTALL_DIR%\SyncEngine" >nul
-xcopy /E /Y /I /Q /H ".\mingit" "%INSTALL_DIR%\mingit" >nul
-xcopy /E /Y /I /Q /H ".\.git" "%INSTALL_DIR%\.git" >nul
-if exist ".\Shared-Set" xcopy /E /Y /I /Q /H ".\Shared-Set" "%INSTALL_DIR%\Shared-Set" >nul
-xcopy /E /Y /I /Q /H ".\Launch_Silent.vbs" "%INSTALL_DIR%\" >nul
-copy /Y ".\Launch_Shared_Editor.bat" "%INSTALL_DIR%\Launch_Shared_Editor.bat" >nul
+if not exist "%TEMP_ZIP%" (
+    echo ERROR: Download failed. Check your internet connection.
+    pause
+    exit /b 1
+)
 
-echo.
+echo Extracting files...
+powershell -Command "Expand-Archive -Path '%TEMP_ZIP%' -DestinationPath '%TEMP_DIR%' -Force"
+
+echo Installing...
+set "SRC=%TEMP_DIR%\MSE2-Shared-Editor-main"
+
+mkdir "%INSTALL_DIR%" >nul 2>&1
+xcopy /E /Y /I /Q /H "%SRC%\MSE2"         "%INSTALL_DIR%\MSE2"        >nul
+xcopy /E /Y /I /Q /H "%SRC%\SyncEngine"   "%INSTALL_DIR%\SyncEngine"  >nul
+xcopy /E /Y /I /Q /H "%SRC%\mingit"       "%INSTALL_DIR%\mingit"      >nul
+if exist "%SRC%\Shared-Set" xcopy /E /Y /I /Q /H "%SRC%\Shared-Set" "%INSTALL_DIR%\Shared-Set" >nul
+copy /Y "%SRC%\Launch_Shared_Editor.bat"  "%INSTALL_DIR%\Launch_Shared_Editor.bat" >nul
+copy /Y "%SRC%\Launch_Silent.vbs"         "%INSTALL_DIR%\Launch_Silent.vbs" >nul
+
+:: Initialize git in the install dir so future pulls work
+set "PATH=%INSTALL_DIR%\mingit\cmd;%PATH%"
+set "GIT_TERMINAL_PROMPT=0"
+cd /d "%INSTALL_DIR%"
+git init >nul 2>&1
+git remote add origin https://github.com/basscosauce-beep/MSE2-Shared-Editor.git >nul 2>&1
+git fetch origin >nul 2>&1
+git reset --hard origin/main >nul 2>&1
+
+:: Clean up temp files
+rmdir /s /q "%TEMP_DIR%" >nul 2>&1
+del /f /q "%TEMP_ZIP%" >nul 2>&1
+
+:: Create Desktop shortcut
 echo Creating Desktop Shortcut...
-:: Use PowerShell to create the shortcut pointing to the silent VBS launcher
 powershell -Command "$WshShell = New-Object -comObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%SHORTCUT_PATH%'); $Shortcut.TargetPath = '%INSTALL_DIR%\Launch_Silent.vbs'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.IconLocation = '%INSTALL_DIR%\MSE2\magicseteditor.exe'; $Shortcut.Description = 'Launch Magic Set Editor 2 - Shared Cloud Edition'; $Shortcut.Save()"
 
 echo.
@@ -35,13 +72,10 @@ echo ==================================================
 echo   INSTALLATION COMPLETE!
 echo ==================================================
 echo A shortcut has been placed on your Desktop.
-echo.
-echo Launching Magic Set Editor now...
+echo From now on, use that shortcut to launch the editor.
 echo.
 
-:: Launch it
-cd /d "%INSTALL_DIR%"
-start "" "Launch_Shared_Editor.bat"
-
-:: Close the installer
+:launch
+:: Launch silently via the VBS wrapper (no console window)
+start "" wscript.exe "%INSTALL_DIR%\Launch_Silent.vbs"
 exit
