@@ -19,7 +19,8 @@ try {
     $goalsFile = "$($setFile.DirectoryName)\goals_$($setFile.BaseName).json"
 
     # Data Model
-    $colors = @("Total Set", "White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")
+    # Added 'Baseline'
+    $colors = @("Baseline", "Total Set", "White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")
     $types = @("Creatures", "Enchantments", "Instants/Sorceries", "Artifacts", "Lands")
     $mvs = @("MV 0", "MV 1", "MV 2", "MV 3", "MV 4", "MV 5+")
 
@@ -99,6 +100,15 @@ try {
         if ($cardMv) { $actuals["Total Set_${cardMv}"]++ }
     }
 
+    # Sum Total Goals
+    foreach ($cat in ($types + $mvs)) {
+        $sum = 0
+        foreach ($c in @("White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")) {
+            $sum += $goals["${c}_${cat}"]
+        }
+        $goals["Total Set_${cat}"] = $sum
+    }
+
     $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -166,8 +176,8 @@ try {
 "@
 
     $emojis = @{
-        "Total Set" = "??"; "White" = "?"; "Blue" = "??"; "Black" = "?"; 
-        "Red" = "??"; "Green" = "??"; "Colorless" = "?"; "Multicolor" = "??"
+        "Baseline" = "???"; "Total Set" = "??"; "White" = "?"; "Blue" = "??"; 
+        "Black" = "?"; "Red" = "??"; "Green" = "??"; "Colorless" = "?"; "Multicolor" = "??"
     }
 
     foreach ($c in $colors) {
@@ -227,39 +237,50 @@ try {
         $gol = $goals[$key]
         if ($gol -eq 0) { $pct = 0 } else { $pct = $act / $gol }
         
-        $pbBg = New-Object System.Windows.Shapes.Rectangle
-        $pbBg.Fill = "#222"
-        $pbBg.Height = 12
-        $pbBg.Width = 130
-        $pbBg.HorizontalAlignment = "Left"
-        [System.Windows.Controls.Grid]::SetColumn($pbBg, 1)
-        $grid.Children.Add($pbBg)
-        
-        $pbFg = New-Object System.Windows.Shapes.Rectangle
-        $fillColor = "#4CAF50"
-        if ($pct -lt 0.6) { $fillColor = "#9C27B0" }
-        elseif ($pct -lt 1.0) { $fillColor = "#FFC107" }
-        
-        $pbFg.Fill = (New-Object System.Windows.Media.BrushConverter).ConvertFromString($fillColor)
-        $pbFg.Height = 12
-        $fillWidth = 130 * $pct
-        if ($fillWidth -gt 130) { $fillWidth = 130 }
-        $pbFg.Width = $fillWidth
-        $pbFg.HorizontalAlignment = "Left"
-        [System.Windows.Controls.Grid]::SetColumn($pbFg, 1)
-        $grid.Children.Add($pbFg)
-        
-        $txt = New-Object System.Windows.Controls.TextBlock
-        $txt.Text = "$act / $gol"
-        $txt.VerticalAlignment = "Center"
-        [System.Windows.Controls.Grid]::SetColumn($txt, 2)
-        $grid.Children.Add($txt)
+        if ($color -ne "Baseline") {
+            $pbBg = New-Object System.Windows.Shapes.Rectangle
+            $pbBg.Fill = "#222"
+            $pbBg.Height = 12
+            $pbBg.Width = 130
+            $pbBg.HorizontalAlignment = "Left"
+            [System.Windows.Controls.Grid]::SetColumn($pbBg, 1)
+            $grid.Children.Add($pbBg)
+            
+            $pbFg = New-Object System.Windows.Shapes.Rectangle
+            $fillColor = "#4CAF50"
+            if ($pct -lt 0.6) { $fillColor = "#9C27B0" }
+            elseif ($pct -lt 1.0) { $fillColor = "#FFC107" }
+            
+            $pbFg.Fill = (New-Object System.Windows.Media.BrushConverter).ConvertFromString($fillColor)
+            $pbFg.Height = 12
+            $fillWidth = 130 * $pct
+            if ($fillWidth -gt 130) { $fillWidth = 130 }
+            $pbFg.Width = $fillWidth
+            $pbFg.HorizontalAlignment = "Left"
+            [System.Windows.Controls.Grid]::SetColumn($pbFg, 1)
+            $grid.Children.Add($pbFg)
+            
+            $txt = New-Object System.Windows.Controls.TextBlock
+            $txt.Text = "$act / $gol"
+            $txt.VerticalAlignment = "Center"
+            [System.Windows.Controls.Grid]::SetColumn($txt, 2)
+            $grid.Children.Add($txt)
+        }
         
         $box = New-Object System.Windows.Controls.TextBox
         $box.Text = $gol.ToString()
         $box.Width = 40
         $box.HorizontalAlignment = "Left"
         $box.VerticalAlignment = "Center"
+        
+        # Make Total Set read-only
+        if ($color -eq "Total Set") {
+            $box.IsReadOnly = $true
+            $box.Background = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#222")
+            $box.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#888")
+            $box.BorderThickness = 0
+        }
+        
         [System.Windows.Controls.Grid]::SetColumn($box, 3)
         $grid.Children.Add($box)
         
@@ -271,6 +292,15 @@ try {
         $cNameEscaped = $c -replace " ", "_"
         $panel = $window.FindName("Panel_${cNameEscaped}")
         
+        if ($c -eq "Baseline") {
+            $desc = New-Object System.Windows.Controls.TextBlock
+            $desc.Text = "Goals set here will be automatically applied to White, Blue, Black, Red, and Green. (Colorless and Multicolor are excluded)."
+            $desc.Foreground = "#888"
+            $desc.TextWrapping = "Wrap"
+            $desc.Margin = "0,0,0,10"
+            $panel.Children.Add($desc)
+        }
+
         AddSection $panel "TYPES"
         foreach ($t in $types) { AddRow $panel $c $t }
         
@@ -279,15 +309,41 @@ try {
     }
 
     $window.FindName("BtnSave").add_Click({
+        # First read the baseline values
+        $baseline = @{}
+        foreach ($cat in ($types + $mvs)) {
+            $val = 0
+            if ([int]::TryParse($goalBoxes["Baseline_${cat}"].Text, [ref]$val)) {
+                $baseline[$cat] = $val
+            }
+        }
+        
+        # Update colors from baseline if they were modified just now
+        $baseChanged = $false
+        foreach ($cat in ($types + $mvs)) {
+            if ($baseline[$cat] -ne $goals["Baseline_${cat}"]) {
+                $baseChanged = $true
+                foreach ($c in @("White", "Blue", "Black", "Red", "Green")) {
+                    $goalBoxes["${c}_${cat}"].Text = $baseline[$cat].ToString()
+                }
+            }
+        }
+
+        # Read all textboxes and update goals
         foreach ($key in $goalBoxes.Keys) {
             $val = 0
             if ([int]::TryParse($goalBoxes[$key].Text, [ref]$val)) {
                 $goals[$key] = $val
             }
         }
+        
+        # Save to file
         $jsSer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
         Set-Content -Path $goalsFile -Value ($jsSer.Serialize($goals))
-        $window.FindName("SavedMsg").Visibility = "Visible"
+        
+        # Refresh window immediately to update progress bars and totals
+        $window.Close()
+        Start-Process "wscript.exe" -ArgumentList "`"$appData\GoalTracker.vbs`""
     })
 
     $window.FindName("BtnRefresh").add_Click({

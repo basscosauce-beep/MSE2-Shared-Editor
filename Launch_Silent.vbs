@@ -73,7 +73,7 @@ If cscPath <> "" And Not objFSO.FileExists(strDir & "\MenuAddon.exe") Then
 End If
 
 ' ---- Start Menu Addon (adds Account Settings to MSE2 menu bar) ----
-objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs""", 0, False
+objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs"" """ & strDir & "\GoalTracker.vbs""", 0, False
 
 ' ---- Launch MSE2 ----
 objShell.Run """" & strDir & "\MSE2\magicseteditor.exe""", 1, False
