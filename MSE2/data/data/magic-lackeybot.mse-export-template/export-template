@@ -1,0 +1,50 @@
+﻿mse version: 2.5.0
+short name: LackeyBot
+full name: LackeyBot Exporter
+position hint: 200
+icon: icon.png
+version: 2024-09-23
+installer group: magic/Export/LackeyBot
+
+depends on:
+	package: magic.mse-game
+	version: 2009-07-23
+
+game: magic
+create directory: true
+file type: *.txt|*.txt|*.*|*.*
+
+# By Cajun
+option field:
+	type: text
+	name: set code
+	description: The set code for the set
+option field:
+	type: choice
+	name: export images
+	choice: no
+	choice: full size
+	choice: lackey size
+option field:
+	type: choice
+	name: image name
+	choice: name
+	choice: card number
+option field:
+	type: text
+	name: default designer
+	description: The default or head designer for this set.
+option field:
+	type: boolean
+	name: check designers
+	description: check the textbox by card # for designer credit?
+option field:
+	type: text
+	name: v mana replacement
+	description: exports V mana as a replacement text string
+script:
+	include file: script
+	
+	write_images := if options.export_images == "no" then "" else for each card in cards do if not export_me() then "" else write_card_images(card)
+
+	to_string("\{\n"+clean_cards(write_cards) +"}")
