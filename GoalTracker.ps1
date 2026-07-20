@@ -19,22 +19,36 @@ try {
     $goalsFile = "$($setFile.DirectoryName)\goals_$($setFile.BaseName).json"
 
     # Data Model
-    # Added 'Baseline'
     $colors = @("Baseline", "Total Set", "White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")
     $types = @("Creatures", "Enchantments", "Instants/Sorceries", "Artifacts", "Lands")
     $mvs = @("MV 0", "MV 1", "MV 2", "MV 3", "MV 4", "MV 5+")
+    $rarities = @("Common", "Uncommon", "Rare", "Mythic Rare")
+    $allCats = $types + $mvs + $rarities
 
     $goals = @{}
     $actuals = @{}
+    $locks = @{}
     foreach ($c in $colors) {
-        foreach ($t in $types) { $goals["${c}_${t}"] = 0; $actuals["${c}_${t}"] = 0 }
-        foreach ($m in $mvs) { $goals["${c}_${m}"] = 0; $actuals["${c}_${m}"] = 0 }
+        foreach ($cat in $allCats) {
+            $goals["${c}_${cat}"] = 0
+            $actuals["${c}_${cat}"] = 0
+            $locks["${c}_${cat}"] = $false
+        }
     }
 
     if (Test-Path $goalsFile) {
         $jsSer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
         $loadedGoals = $jsSer.DeserializeObject((Get-Content $goalsFile -Raw))
-        if ($loadedGoals) { foreach ($k in $loadedGoals.Keys) { $goals[$k] = $loadedGoals[$k] } }
+        if ($loadedGoals) { 
+            foreach ($k in $loadedGoals.Keys) { 
+                if ($k -match "_Locked$") {
+                    $baseK = $k -replace "_Locked$", ""
+                    $locks[$baseK] = $loadedGoals[$k]
+                } else {
+                    $goals[$k] = $loadedGoals[$k] 
+                }
+            } 
+        }
     }
 
     $totalCards = 0
@@ -53,9 +67,11 @@ try {
         
         $cc = ""
         $type = ""
+        $rarityRaw = ""
         if ($card -match '(?m)^\s*casting_cost:\s*(.*)') { $cc = $matches[1].Trim() }
         if ($card -match '(?m)^\s*super_type:\s*(.*)') { $type = $matches[1] }
         if ($card -match '(?m)^\s*sub_type:\s*(.*)') { $type += $matches[1] }
+        if ($card -match '(?m)^\s*rarity:\s*(.*)') { $rarityRaw = $matches[1].Trim().ToLower() }
         
         $cList = @()
         if ($cc -match 'W') { $cList += "W" }
@@ -93,15 +109,29 @@ try {
         $cardMv = ""
         if ($mv -ge 5) { $cardMv = "MV 5+" }
         else { $cardMv = "MV $mv" }
+
+        $cardRarity = ""
+        if ($rarityRaw -match "mythic") { $cardRarity = "Mythic Rare" }
+        elseif ($rarityRaw -match "rare") { $cardRarity = "Rare" }
+        elseif ($rarityRaw -match "uncommon") { $cardRarity = "Uncommon" }
+        elseif ($rarityRaw -match "common" -or $rarityRaw -match "basic") { $cardRarity = "Common" }
         
-        if ($cardType) { $actuals["${cardColor}_${cardType}"]++ }
-        if ($cardMv) { $actuals["${cardColor}_${cardMv}"]++ }
-        if ($cardType) { $actuals["Total Set_${cardType}"]++ }
-        if ($cardMv) { $actuals["Total Set_${cardMv}"]++ }
+        if ($cardType) { 
+            $actuals["${cardColor}_${cardType}"]++ 
+            $actuals["Total Set_${cardType}"]++
+        }
+        if ($cardMv) { 
+            $actuals["${cardColor}_${cardMv}"]++ 
+            $actuals["Total Set_${cardMv}"]++
+        }
+        if ($cardRarity) {
+            $actuals["${cardColor}_${cardRarity}"]++
+            $actuals["Total Set_${cardRarity}"]++
+        }
     }
 
     # Sum Total Goals
-    foreach ($cat in ($types + $mvs)) {
+    foreach ($cat in $allCats) {
         $sum = 0
         foreach ($c in @("White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")) {
             $sum += $goals["${c}_${cat}"]
@@ -112,7 +142,7 @@ try {
     $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Set Goal Tracker - $($setName)" Height="750" Width="550" Background="#1E1E1E" Foreground="White"
+        Title="Set Goal Tracker - $($setName)" Height="820" Width="550" Background="#1E1E1E" Foreground="White"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
     <Window.Resources>
         <Style TargetType="TextBlock">
@@ -133,6 +163,13 @@ try {
             <Setter Property="Padding" Value="10,5" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Margin" Value="5" />
+        </Style>
+        <Style TargetType="ToggleButton">
+            <Setter Property="Background" Value="#333" />
+            <Setter Property="Foreground" Value="#AAA" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="#555" />
+            <Setter Property="Cursor" Value="Hand" />
         </Style>
         <Style TargetType="TabItem">
             <Setter Property="Background" Value="#2D2D2D"/>
@@ -207,6 +244,7 @@ try {
     $window = [System.Windows.Markup.XamlReader]::Load($reader)
 
     $goalBoxes = @{}
+    $lockBoxes = @{}
 
     function AddSection($panel, $title) {
         $tb = New-Object System.Windows.Controls.TextBlock
@@ -226,6 +264,7 @@ try {
         $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(150)}))
         $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(70)}))
         $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(60)}))
+        $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(40)}))
         
         $lbl = New-Object System.Windows.Controls.TextBlock
         $lbl.Text = $category
@@ -273,18 +312,43 @@ try {
         $box.HorizontalAlignment = "Left"
         $box.VerticalAlignment = "Center"
         
-        # Make Total Set read-only
         if ($color -eq "Total Set") {
             $box.IsReadOnly = $true
             $box.Background = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#222")
             $box.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#888")
             $box.BorderThickness = 0
         }
-        
         [System.Windows.Controls.Grid]::SetColumn($box, 3)
         $grid.Children.Add($box)
-        
         $goalBoxes[$key] = $box
+
+        # Lock Button
+        if ($color -ne "Baseline" -and $color -ne "Total Set") {
+            $btnLock = New-Object System.Windows.Controls.Primitives.ToggleButton
+            $btnLock.Width = 24
+            $btnLock.Height = 24
+            $btnLock.HorizontalAlignment = "Left"
+            $btnLock.IsChecked = $locks[$key]
+            
+            # Content string based on state
+            if ($locks[$key]) { $btnLock.Content = "??"; $btnLock.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#FFF") } 
+            else { $btnLock.Content = "??"; $btnLock.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#666") }
+            
+            $btnLock.add_Click({
+                if ($this.IsChecked -eq $true) {
+                    $this.Content = "??"
+                    $this.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#FFF")
+                } else {
+                    $this.Content = "??"
+                    $this.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#666")
+                }
+            })
+
+            [System.Windows.Controls.Grid]::SetColumn($btnLock, 4)
+            $grid.Children.Add($btnLock)
+            $lockBoxes[$key] = $btnLock
+        }
+
         $panel.Children.Add($grid)
     }
 
@@ -306,25 +370,34 @@ try {
         
         AddSection $panel "MANA VALUE"
         foreach ($m in $mvs) { AddRow $panel $c $m }
+
+        AddSection $panel "RARITY"
+        foreach ($r in $rarities) { AddRow $panel $c $r }
     }
 
     $window.FindName("BtnSave").add_Click({
         # First read the baseline values
         $baseline = @{}
-        foreach ($cat in ($types + $mvs)) {
+        foreach ($cat in $allCats) {
             $val = 0
             if ([int]::TryParse($goalBoxes["Baseline_${cat}"].Text, [ref]$val)) {
                 $baseline[$cat] = $val
             }
         }
         
+        # Read lock states first
+        foreach ($key in $lockBoxes.Keys) {
+            $locks[$key] = $lockBoxes[$key].IsChecked
+            $goals["${key}_Locked"] = $locks[$key]
+        }
+
         # Update colors from baseline if they were modified just now
-        $baseChanged = $false
-        foreach ($cat in ($types + $mvs)) {
+        foreach ($cat in $allCats) {
             if ($baseline[$cat] -ne $goals["Baseline_${cat}"]) {
-                $baseChanged = $true
                 foreach ($c in @("White", "Blue", "Black", "Red", "Green")) {
-                    $goalBoxes["${c}_${cat}"].Text = $baseline[$cat].ToString()
+                    if (-not $locks["${c}_${cat}"]) {
+                        $goalBoxes["${c}_${cat}"].Text = $baseline[$cat].ToString()
+                    }
                 }
             }
         }
