@@ -60,6 +60,18 @@ If strNode <> "" Then
     objShell.Run """" & strNode & """ """ & strDir & "\SyncEngine\sync_engine.js""", 0, False
 End If
 
+' ---- Compile MenuAddon.exe if missing (uses .NET Framework built into Windows) ----
+Dim cscPath
+Dim cscCandidates(1)
+cscCandidates(0) = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+cscCandidates(1) = "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+For i = 0 To 1
+    If objFSO.FileExists(cscCandidates(i)) Then cscPath = cscCandidates(i)
+Next
+If cscPath <> "" And Not objFSO.FileExists(strDir & "\MenuAddon.exe") Then
+    objShell.Run """" & cscPath & """ /nologo /r:System.Windows.Forms.dll /out:""" & strDir & "\MenuAddon.exe"" """ & strDir & "\MenuAddon.cs""", 0, True
+End If
+
 ' ---- Start Menu Addon (adds Account Settings to MSE2 menu bar) ----
 objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs""", 0, False
 
