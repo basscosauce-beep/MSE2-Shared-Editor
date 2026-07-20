@@ -60,5 +60,8 @@ If strNode <> "" Then
     objShell.Run """" & strNode & """ """ & strDir & "\SyncEngine\sync_engine.js""", 0, False
 End If
 
+' ---- Start Menu Addon (adds Account Settings to MSE2 menu bar) ----
+objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs""", 0, False
+
 ' ---- Launch MSE2 ----
 objShell.Run """" & strDir & "\MSE2\magicseteditor.exe""", 1, False
