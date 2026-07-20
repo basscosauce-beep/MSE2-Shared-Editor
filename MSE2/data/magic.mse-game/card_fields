@@ -995,7 +995,7 @@ card field:
 	description: Who made this card? Enter your initials or name.
 	card list visible: true
 	card list name: By
-	card list column: 0201
+	card list column: 1900
 	card list width: 60
 	show statistics: false
 card field:
