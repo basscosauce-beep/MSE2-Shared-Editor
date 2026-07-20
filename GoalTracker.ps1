@@ -1,4 +1,4 @@
-Add-Type -AssemblyName PresentationFramework
+﻿Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.Web.Extensions
@@ -206,7 +206,7 @@ try {
         
         <StackPanel Grid.Row="0" Margin="0,0,0,15">
             <TextBlock Text="?? Set Goal Tracker" FontSize="20" FontWeight="Bold" />
-            <TextBlock Text="$totalCards cards total  �  Last refresh: $(Get-Date -Format 'HH:mm:ss')" FontSize="12" Foreground="#AAA" Margin="0,5,0,0" />
+            <TextBlock Text="$totalCards cards total  ·  Last refresh: $(Get-Date -Format 'HH:mm:ss')" FontSize="12" Foreground="#AAA" Margin="0,5,0,0" />
         </StackPanel>
         
         <TabControl Name="ColorTabs" Grid.Row="1" Background="#3D3D3D" BorderThickness="0" Padding="10">
@@ -336,7 +336,7 @@ try {
         }
         elseif ($color -ne "Baseline" -and $color -ne "Total Set" -and $isTypeCategory) {
             $btnLock = New-Object System.Windows.Controls.Primitives.ToggleButton
-            $btnLock.Width = 24
+            $btnLock.Width = 40
             $btnLock.Height = 24
             $btnLock.HorizontalAlignment = "Left"
             $btnLock.IsChecked = $locks[$key]
@@ -464,3 +464,4 @@ try {
 } catch {
     [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Goal Tracker Error")
 }
+
