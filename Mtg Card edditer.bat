@@ -22,12 +22,13 @@ xcopy /E /Y /I /Q /H ".\SyncEngine" "%INSTALL_DIR%\SyncEngine" >nul
 xcopy /E /Y /I /Q /H ".\mingit" "%INSTALL_DIR%\mingit" >nul
 xcopy /E /Y /I /Q /H ".\.git" "%INSTALL_DIR%\.git" >nul
 if exist ".\Shared-Set" xcopy /E /Y /I /Q /H ".\Shared-Set" "%INSTALL_DIR%\Shared-Set" >nul
+xcopy /E /Y /I /Q /H ".\Launch_Silent.vbs" "%INSTALL_DIR%\" >nul
 copy /Y ".\Launch_Shared_Editor.bat" "%INSTALL_DIR%\Launch_Shared_Editor.bat" >nul
 
 echo.
 echo Creating Desktop Shortcut...
-:: Use PowerShell to create the shortcut
-powershell -Command "$WshShell = New-Object -comObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%SHORTCUT_PATH%'); $Shortcut.TargetPath = '%INSTALL_DIR%\Launch_Shared_Editor.bat'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.IconLocation = '%INSTALL_DIR%\MSE2\magicseteditor.exe'; $Shortcut.Save()"
+:: Use PowerShell to create the shortcut pointing to the silent VBS launcher
+powershell -Command "$WshShell = New-Object -comObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%SHORTCUT_PATH%'); $Shortcut.TargetPath = '%INSTALL_DIR%\Launch_Silent.vbs'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.IconLocation = '%INSTALL_DIR%\MSE2\magicseteditor.exe'; $Shortcut.Description = 'Launch Magic Set Editor 2 - Shared Cloud Edition'; $Shortcut.Save()"
 
 echo.
 echo ==================================================
