@@ -9,6 +9,10 @@ try {
     $mseProcess = Get-Process -Name "magicseteditor" -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $mseProcess) { throw "MSE2 is not running. Please open your set in Magic Set Editor first." }
 
+    $mseExePath = $mseProcess.MainModule.FileName
+    $mseDir = [System.IO.Path]::GetDirectoryName($mseExePath)
+    $manaDir = "$mseDir\data\magic-mana-large.mse-symbol-font"
+
     $title = $mseProcess.MainWindowTitle
     if (-not $title) { throw "Could not get MSE2 window title." }
 
@@ -212,15 +216,42 @@ try {
         <TabControl Name="ColorTabs" Grid.Row="1" Background="#3D3D3D" BorderThickness="0" Padding="10">
 "@
 
-    $emojis = @{
-        "Baseline" = "[ Baseline ]"; "Total Set" = "[ Total Set ]"; "White" = "W White"; "Blue" = "U Blue"; 
-        "Black" = "B Black"; "Red" = "R Red"; "Green" = "G Green"; "Colorless" = "C Colorless"; "Multicolor" = "M Multicolor"
+    $tabLabels = @{
+        "Baseline" = "[ Baseline ]"; "Total Set" = "[ Total Set ]"; "White" = "White"; "Blue" = "Blue"; 
+        "Black" = "Black"; "Red" = "Red"; "Green" = "Green"; "Colorless" = "Colorless"; "Multicolor" = "Multicolor"
+    }
+
+    $iconFiles = @{
+        "White" = "mana_w.png"; "Blue" = "mana_u.png"; "Black" = "mana_b.png";
+        "Red" = "mana_r.png"; "Green" = "mana_g.png"; "Colorless" = "mana_c.png";
+        "Multicolor" = "mana_wubrg.png"
     }
 
     foreach ($c in $colors) {
         $cNameEscaped = $c -replace " ", "_"
+        
+        $headerXaml = ""
+        if ($iconFiles.ContainsKey($c)) {
+            $imgPath = "$manaDir\$($iconFiles[$c])"
+            # Ensure WPF handles paths correctly by using forward slashes or URI format
+            $imgUri = "file:///" + ($imgPath -replace "\\", "/")
+            $headerXaml = @"
+<StackPanel Orientation="Horizontal">
+    <Image Source="$imgUri" Height="14" Margin="0,0,5,0" RenderOptions.BitmapScalingMode="HighQuality" />
+    <TextBlock Text="$($tabLabels[$c])" VerticalAlignment="Center" Foreground="White" />
+</StackPanel>
+"@
+        } else {
+            $headerXaml = @"
+<TextBlock Text="$($tabLabels[$c])" VerticalAlignment="Center" Foreground="White" />
+"@
+        }
+
         $xaml += @"
-            <TabItem Header="$($emojis[$c])">
+            <TabItem>
+                <TabItem.Header>
+                    $headerXaml
+                </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Name="Panel_${cNameEscaped}" />
                 </ScrollViewer>
