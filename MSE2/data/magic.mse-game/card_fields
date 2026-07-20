@@ -1,4 +1,4 @@
-﻿############################################################## Card fields
+############################################################## Card fields
 ############################################################## Automated fields
 ############################################################## Card shape
 card field:
@@ -3219,7 +3219,7 @@ card field:
 	card list name: Vorthos Box
 	card list column: 1223
 	card list width: 150
-	script: if value == "" then extra_card.vorthos_box or else "" else value
+	script: if value == "" then "" else value
 card field:
 	type: text
 	name: vorthos box 2
@@ -3228,7 +3228,7 @@ card field:
 	card list name: Vorthos Box 2
 	card list column: 1224
 	card list width: 150
-	script: if value == "" then extra_card.vorthos_box_2 or else "" else value
+	script: if value == "" then "" else value
 
 ############################################################## Old frame copyright line
 card field:
