@@ -77,3 +77,4 @@ objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs""",
 
 ' ---- Launch MSE2 ----
 objShell.Run """" & strDir & "\MSE2\magicseteditor.exe""", 1, False
+

@@ -1,4 +1,4 @@
-// MSE2 Menu Addon - Adds "Account Settings" to MSE2 menu bar at runtime
+// MSE2 Menu Addon - Adds "Account Settings" and "Goals" to MSE2 menu bar at runtime
 // Handles MSE2's window handle changing when sets are opened/closed
 using System;
 using System.Diagnostics;
@@ -12,6 +12,7 @@ class MSEMenuAddon {
     const uint WINEVENT_OUTOFCONTEXT = 0x0000;
     const uint EVENT_OBJECT_INVOKED  = 0x8013;
     const uint SETTINGS_ID  = 9876;
+    const uint GOALS_ID     = 9877;
 
     delegate void WinEventProc(IntPtr hook, uint eventType, IntPtr hwnd,
                                int idObject, int idChild, uint thread, uint time);
@@ -25,12 +26,14 @@ class MSEMenuAddon {
                                WinEventProc proc, uint pid, uint tid, uint flags);
     [DllImport("user32.dll")] static extern bool   UnhookWinEvent(IntPtr hook);
 
-    static string scriptPath = "";
+    static string settingsScriptPath = "";
+    static string goalsScriptPath = "";
     static IntPtr hookHandle = IntPtr.Zero;
     static WinEventProc del; // prevent GC
 
     static void Main(string[] args) {
-        if (args.Length > 0) scriptPath = args[0];
+        if (args.Length > 0) settingsScriptPath = args[0];
+        if (args.Length > 1) goalsScriptPath = args[1];
 
         // Install WinEvent hook immediately (catches clicks across all window handles)
         del = OnWinEvent;
@@ -69,18 +72,24 @@ class MSEMenuAddon {
         }
 
         AppendMenu(hMenu, MF_SEPARATOR, 0, null);
+        AppendMenu(hMenu, MF_STRING, GOALS_ID, "\uD83D\uDCCA Goals");
         AppendMenu(hMenu, MF_STRING, SETTINGS_ID, "\u2699 Account");
         DrawMenuBar(hwnd);
     }
 
     static void OnWinEvent(IntPtr hook, uint eventType, IntPtr hwnd,
                            int idObject, int idChild, uint thread, uint time) {
-        if ((uint)idChild == SETTINGS_ID) {
-            // Delay launch slightly so Windows exits menu-loop mode first
-            // (menu-loop blocks input to other windows if we open immediately)
+        if ((uint)idChild == SETTINGS_ID && settingsScriptPath != "") {
             var t = new Thread(() => {
                 Thread.Sleep(300);
-                Process.Start("wscript.exe", "\"" + scriptPath + "\"");
+                Process.Start("wscript.exe", "\"" + settingsScriptPath + "\"");
+            });
+            t.IsBackground = true;
+            t.Start();
+        } else if ((uint)idChild == GOALS_ID && goalsScriptPath != "") {
+            var t = new Thread(() => {
+                Thread.Sleep(300);
+                Process.Start("wscript.exe", "\"" + goalsScriptPath + "\"");
             });
             t.IsBackground = true;
             t.Start();
