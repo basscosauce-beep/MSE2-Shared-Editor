@@ -1,0 +1,1347 @@
+
+############################################################## Statistics dimensions 30-03-2023
+############################################################## Blame GenevensiS for this
+
+## Enable showing of non-printing characters to edit this file
+
+statistics dimension:
+	name: color category
+	position hint: 0000
+	icon: stats/color.png
+	description: How many cards of each frame color are in the set. Only looking at the front face colors.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else color_category_statistic()
+	group: Земля
+	group: Бесцветный
+	group: Артефакт
+	group: Белый
+	group: Синий
+	group: Черный
+	group: Красный
+	group: Зеленый
+	group: Многоцветный
+	group: Гибридный
+	colors:
+		Белый		: rgb(255,231,185)
+		Синий		: rgb(15,80,166)
+		Черный		: rgb(33,33,33)
+		Красный		: rgb(156,15,15)
+		Зеленый		: rgb(68,144,15)
+		Бесцветный	: rgb(101,104,94)
+		Артефакт	: rgb(109,132,158)
+		Многоцветный	: rgb(244,177,10)
+		Земля		: rgb(103,64,35)
+		Гибридный		: rgb(112,38,128)
+
+statistics dimension:
+	name: exact color
+	position hint: 0010
+	icon: stats/color.png
+	description: The color as defined by the comprehensive rules. Does not take into account the back side or secondary face (like on adventures for example), except for split cards and aftermath cards.
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else prefixed_color_statistic()
+	colors:
+		​C		: rgb(101,104,94)					# There is a zero width space before the "C" so that it always appears first.
+		​​W		: rgb(255,231,185)					# There are two zero width spaces before the "W" so that it always appear after the "C".
+		​​​U		: rgb(15,80,166)					# There are three zero width spaces before the "U", etc...
+		​​​​B		: rgb(22,22,22)
+		​​​​​R		: rgb(156,15,15)
+		​​​​​​G		: rgb(68,144,15)
+		​​​​​​​WU		: rgb(254,192,80)
+		​​​​​​​​WB		: rgb(254,192,80)
+		​​​​​​​​​WR		: rgb(254,192,80)
+		​​​​​​​​​​WG		: rgb(254,192,80)
+		​​​​​​​​​​​UB		: rgb(254,192,80)
+		​​​​​​​​​​​​UR		: rgb(254,192,80)
+		​​​​​​​​​​​​​UG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​BR		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​BG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​​RG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​​​WUB		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​WUR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​WUG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​WBR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​WBG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​WRG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​UBR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​UBG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​URG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​BRG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBR	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WURG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WBRG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​UBRG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBRG	: rgb(224,133,8)
+
+statistics dimension:
+	name: color identity
+	position hint: 0020
+	icon: stats/color.png
+	description: The commander color identity as defined by the comprehensive rules. Takes into account all sides and faces of the card.
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else prefixed_color_identity_statistic()
+	colors:
+		​C		: rgb(101,104,94)					# There is a zero width space before the "C" so that it always appears first.
+		​​W		: rgb(255,231,185)					# There are two zero width spaces before the "W" so that it always appear after the "C".
+		​​​U		: rgb(15,80,166)					# There are three zero width spaces before the "U", etc...
+		​​​​B		: rgb(22,22,22)
+		​​​​​R		: rgb(156,15,15)
+		​​​​​​G		: rgb(68,144,15)
+		​​​​​​​WU		: rgb(254,192,80)
+		​​​​​​​​WB		: rgb(254,192,80)
+		​​​​​​​​​WR		: rgb(254,192,80)
+		​​​​​​​​​​WG		: rgb(254,192,80)
+		​​​​​​​​​​​UB		: rgb(254,192,80)
+		​​​​​​​​​​​​UR		: rgb(254,192,80)
+		​​​​​​​​​​​​​UG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​BR		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​BG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​​RG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​​​WUB		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​WUR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​WUG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​WBR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​WBG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​WRG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​UBR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​UBG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​URG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​BRG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBR	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WURG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WBRG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​UBRG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBRG	: rgb(224,133,8)
+
+statistics dimension:
+	name: casting cost
+	position hint: 0100
+	icon: stats/casting_cost.png
+	description: The casting cost. Counts each side/face separately if the option is checked in the Set info tab.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else casting_cost_statistic()
+
+statistics dimension:
+	name: mana value
+	position hint: 0110
+	icon: stats/mana_value.png
+	description: The mana value. Counts each side/face separately if the option is checked in the Set info tab, except for split cards and aftermath cards, for which it counts the sum of all faces.
+	numeric: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else mana_value_statistic()
+
+statistics dimension:
+	name: permanent/non
+	position hint: 0200
+	icon: stats/type.png
+	description: Counts the number of creatures, noncreature permanents, and nonpermanents. Counts each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else permanent_statistic()
+	colors:
+		​Существо				: rgb(15,80,166)
+		​​Перманент				: rgb(18,105,166)
+		​​​Не Перманент			: rgb(156,15,15)
+		​​​​Зона Командования	: rgb(244,227,21)
+		​​​​​Неизвестный					: rgb(33,33,33)
+
+statistics dimension:
+	name: supertype
+	position hint: 0210
+	icon: stats/type.png
+	description: The card’s supertype, not including types. Counts each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else supertype_statistic()
+#	group: ​Базовая
+#	group: Снежный
+#	group: ​​​Мировой
+#	group: Легендарный
+#	group: Фишка
+#	group: ​​​​​​Текущая
+#	group: Элита
+#	group: Хозяин
+	colors:
+		​Базовая			: rgb(103,64,35)			# There is a zero width space before the "Basic" so that it always appears after custom types.
+		​​Снежный			: rgb(109,132,158)			# There are two zero width spaces before the "Snow" so that it always appears after basics.
+		​​​Мировой		: rgb(120,100,180)			# There are three zero width spaces before the "World", etc...
+		​​​​Легендарный		: rgb(70,49,125)
+		​​​​​Фишка			: rgb(15,80,166)
+		​​​​​​Текущая		: rgb(56,169,138)
+		​​​​​​​Элита			: rgb(195,221,62)
+		​​​​​​​​Хозяин			: rgb(157,168,115)
+
+statistics dimension:
+	name: card type
+	position hint: 0220
+	icon: stats/type.png
+	description: The card’s type, not including supertypes.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else type_extended_statistic()
+	colors:
+		​Земля				: rgb(103,64,35)			# There is a zero width space before the "Land" so that it always appears after custom types.
+		​​Существо			: rgb(15,80,166)			# There are two zero width spaces before the "Creature" so that it always appears after lands.
+		​​​Племенной				: rgb(65,107,162)			# There are three zero width spaces before the "Kindred", etc...
+		​​​​Артефакт			: rgb(109,132,158)
+		​​​​​Чары		: rgb(120,100,180)
+		​​​​​​Эмблему				: rgb(85,75,152)
+		​​​​​​​Planeswalker		: rgb(70,49,125)
+		​​​​​​​​Боевой			: rgb(136,14,108)
+		​​​​​​​​​Волшебство				: rgb(156,15,15)
+		​​​​​​​​​​Мгновенное заклинание			: rgb(216,72,98)
+		​​​​​​​​​​​Заговор		: rgb(236,134,32)
+		​​​​​​​​​​​​Подземелье				: rgb(244,227,21)
+		​​​​​​​​​​​​​Герой				: rgb(195,221,62)
+		​​​​​​​​​​​​​​Феномен			: rgb(145,215,102)
+		​​​​​​​​​​​​​​​Мир				: rgb(123,198,55)
+		​​​​​​​​​​​​​​​​Схема				: rgb(56,169,138)
+		​​​​​​​​​​​​​​​​​Авангард			: rgb(72,165,172)
+		​​​​​​​​​​​​​​​​​​Нет Типа			: rgb(33,33,33)
+
+statistics dimension:
+	name: combined type
+	position hint: 0230
+	icon: stats/type.png
+	description: The card’s supertypes and types concatenated. Counts each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else combined_type_statistic()
+
+statistics dimension:
+	name: combined subtype
+	position hint: 0250
+	icon: stats/type.png
+	description: The card’s subtypes concatenated. Counts each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else combined_subtype_statistic()
+
+statistics dimension:
+	name: noncreature subtype
+	position hint: 0260
+	icon: stats/noncreature_subtype.png
+	description: Subtypes of all types except creature/tribal/kindred.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else noncreature_subtype_statistic()
+	colors:
+	#Land
+		​Башня                          : rgb(103,64,35)		# There is a zero width space before land types so that they always appear after custom types.
+		​Болото                         : rgb(103,64,35)
+		​Врата                          : rgb(103,64,35)
+		​Гора                           : rgb(103,64,35)
+		​Лес                            : rgb(103,64,35)
+		​Логово                         : rgb(103,64,35)
+		​Место                          : rgb(103,64,35)
+		​Остров                         : rgb(103,64,35)
+		​Пещера                         : rgb(103,64,35)
+		​Пустыня                        : rgb(103,64,35)
+		​Равнина                        : rgb(103,64,35)
+		​Сфера                          : rgb(103,64,35)
+		​Урзы                           : rgb(103,64,35)
+		​Шахта                          : rgb(103,64,35)
+		​Электростанция                 : rgb(103,64,35)
+	#Artifact
+		​​Attraction                     : rgb(109,132,158)		# There are two zero width spaces before artifact types so that they always appear after land types, etc...
+		​​Еда                            : rgb(109,132,158)
+		​​Золота                         : rgb(109,132,158)
+		​​Камня Силы                     : rgb(109,132,158)
+		​​Карта                          : rgb(109,132,158)
+		​​Клад                           : rgb(109,132,158)
+		​​Крови                          : rgb(109,132,158)
+		​​Машина                         : rgb(109,132,158)
+		​​Снаряжение                     : rgb(109,132,158)
+		​​Укрепление                     : rgb(109,132,158)
+		​​Улика                          : rgb(109,132,158)
+		​​Устройство                     : rgb(109,132,158)
+		​​инкубатор                      : rgb(109,132,158)
+	#Enchantment
+		​​​Аура                           : rgb(120,100,180)
+		​​​Картуш                         : rgb(120,100,180)
+		​​​Класс                          : rgb(120,100,180)
+		​​​Осколка                        : rgb(120,100,180)
+		​​​Предыстория                    : rgb(120,100,180)
+		​​​Проклятие                      : rgb(120,100,180)
+		​​​Роль                           : rgb(120,100,180)
+		​​​Руна                           : rgb(120,100,180)
+		​​​Сага                           : rgb(120,100,180)
+		​​​Святыня                        : rgb(120,100,180)
+	#Planeswalker
+		​​​​Aminatou                       : rgb(70,49,125)
+		​​​​Comet                          : rgb(70,49,125)
+		​​​​Dack                           : rgb(70,49,125)
+		​​​​Estrid                         : rgb(70,49,125)
+		​​​​Freyalise                      : rgb(70,49,125)
+		​​​​Guff                           : rgb(70,49,125)
+		​​​​Jared                          : rgb(70,49,125)
+		​​​​Jeska                          : rgb(70,49,125)
+		​​​​Quintorius                     : rgb(70,49,125)
+		​​​​Sivitri                        : rgb(70,49,125)
+		​​​​Szat                           : rgb(70,49,125)
+		​​​​Vronos                         : rgb(70,49,125)
+		​​​​Windgrace                      : rgb(70,49,125)
+		​​​​Аджани                         : rgb(70,49,125)
+		​​​​Анграт                         : rgb(70,49,125)
+		​​​​Арлинн                         : rgb(70,49,125)
+		​​​​Ашиок                          : rgb(70,49,125)
+		​​​​Базри                          : rgb(70,49,125)
+		​​​​Бахамут                        : rgb(70,49,125)
+		​​​​Болас                          : rgb(70,49,125)
+		​​​​Венсер                         : rgb(70,49,125)
+		​​​​Вивьен                         : rgb(70,49,125)
+		​​​​Враска                         : rgb(70,49,125)
+		​​​​Гаррук                         : rgb(70,49,125)
+		​​​​Гидеон                         : rgb(70,49,125)
+		​​​​Грист                          : rgb(70,49,125)
+		​​​​Давриэль                       : rgb(70,49,125)
+		​​​​Даккон                         : rgb(70,49,125)
+		​​​​Даретти                        : rgb(70,49,125)
+		​​​​Джайя                          : rgb(70,49,125)
+		​​​​Джейс                          : rgb(70,49,125)
+		​​​​Дихада                         : rgb(70,49,125)
+		​​​​Довин                          : rgb(70,49,125)
+		​​​​Домри                          : rgb(70,49,125)
+		​​​​Зариэль                        : rgb(70,49,125)
+		​​​​Кайто                          : rgb(70,49,125)
+		​​​​Кайя                           : rgb(70,49,125)
+		​​​​Каликс                         : rgb(70,49,125)
+		​​​​Карн                           : rgb(70,49,125)
+		​​​​Касмина                        : rgb(70,49,125)
+		​​​​Киора                          : rgb(70,49,125)
+		​​​​Кос                            : rgb(70,49,125)
+		​​​​Ксенаг                         : rgb(70,49,125)
+		​​​​Лилиана                        : rgb(70,49,125)
+		​​​​Лолт                           : rgb(70,49,125)
+		​​​​Лукка                          : rgb(70,49,125)
+		​​​​Минск                          : rgb(70,49,125)
+		​​​​Морденкайнен                   : rgb(70,49,125)
+		​​​​Нарсет                         : rgb(70,49,125)
+		​​​​Нахири                         : rgb(70,49,125)
+		​​​​Нико                           : rgb(70,49,125)
+		​​​​Никсилис                       : rgb(70,49,125)
+		​​​​Нисса                          : rgb(70,49,125)
+		​​​​Око                            : rgb(70,49,125)
+		​​​​Рал                            : rgb(70,49,125)
+		​​​​Ренн                           : rgb(70,49,125)
+		​​​​Рован                          : rgb(70,49,125)
+		​​​​Самут                          : rgb(70,49,125)
+		​​​​Сархан                         : rgb(70,49,125)
+		​​​​Сахили                         : rgb(70,49,125)
+		​​​​Серра                          : rgb(70,49,125)
+		​​​​Сорин                          : rgb(70,49,125)
+		​​​​Тамиё                          : rgb(70,49,125)
+		​​​​Таша                           : rgb(70,49,125)
+		​​​​Теззерет                       : rgb(70,49,125)
+		​​​​Тейо                           : rgb(70,49,125)
+		​​​​Тефери                         : rgb(70,49,125)
+		​​​​Тибальт                        : rgb(70,49,125)
+		​​​​Тивар                          : rgb(70,49,125)
+		​​​​Уатли                          : rgb(70,49,125)
+		​​​​Уджин                          : rgb(70,49,125)
+		​​​​Уилл                           : rgb(70,49,125)
+		​​​​Урзы                           : rgb(70,49,125)
+		​​​​Чандра                         : rgb(70,49,125)
+		​​​​Элливик                        : rgb(70,49,125)
+		​​​​Элспет                         : rgb(70,49,125)
+		​​​​Эльминстер                     : rgb(70,49,125)
+		​​​​Янгу                           : rgb(70,49,125)
+		​​​​Янлин                          : rgb(70,49,125)
+	#Battle
+		​​​​​Осада                          : rgb(136,14,108)
+	#Spell
+		​​​​​​Ловушка                        : rgb(156,15,15)
+		​​​​​​Приключение                    : rgb(156,15,15)
+		​​​​​​Тайные_знания                  : rgb(156,15,15)
+		​​​​​​Урок                           : rgb(156,15,15)
+	#Dungeon
+		​​​​​​​Подземного Города              : rgb(244,227,21)
+	#Plane
+		​​​​​​​​Alfava Metraxis                : rgb(123,198,55)
+		​​​​​​​​Alkabah                        : rgb(123,198,55)
+		​​​​​​​​Androzani Minor                : rgb(123,198,55)
+		​​​​​​​​Antausia                       : rgb(123,198,55)
+		​​​​​​​​Apalapucia                     : rgb(123,198,55)
+		​​​​​​​​Aranzhur                       : rgb(123,198,55)
+		​​​​​​​​Arkhos                         : rgb(123,198,55)
+		​​​​​​​​Azoria                         : rgb(123,198,55)
+		​​​​​​​​Bloomburrow                    : rgb(123,198,55)
+		​​​​​​​​Bolas’s Meditation Realm       : rgb(123,198,55)
+		​​​​​​​​Cabralin                       : rgb(123,198,55)
+		​​​​​​​​Celesta                        : rgb(123,198,55)
+		​​​​​​​​Cridhe                         : rgb(123,198,55)
+		​​​​​​​​Darillium                      : rgb(123,198,55)
+		​​​​​​​​Diraden                        : rgb(123,198,55)
+		​​​​​​​​Duskmourn                      : rgb(123,198,55)
+		​​​​​​​​Earth                          : rgb(123,198,55)
+		​​​​​​​​Echoir                         : rgb(123,198,55)
+		​​​​​​​​Equilor                        : rgb(123,198,55)
+		​​​​​​​​Fabacin                        : rgb(123,198,55)
+		​​​​​​​​Gallifrey                      : rgb(123,198,55)
+		​​​​​​​​Gargantikar                    : rgb(123,198,55)
+		​​​​​​​​Gastal                         : rgb(123,198,55)
+		​​​​​​​​Horsehead Nebula               : rgb(123,198,55)
+		​​​​​​​​Ilcae                          : rgb(123,198,55)
+		​​​​​​​​Iquatana                       : rgb(123,198,55)
+		​​​​​​​​Ir                             : rgb(123,198,55)
+		​​​​​​​​Kandoka                        : rgb(123,198,55)
+		​​​​​​​​Kephalai                       : rgb(123,198,55)
+		​​​​​​​​Kinshala                       : rgb(123,198,55)
+		​​​​​​​​Kodisha                        : rgb(123,198,55)
+		​​​​​​​​Kolbahan                       : rgb(123,198,55)
+		​​​​​​​​Kyneth                         : rgb(123,198,55)
+		​​​​​​​​Luvion                         : rgb(123,198,55)
+		​​​​​​​​Mars                           : rgb(123,198,55)
+		​​​​​​​​Metal Island                   : rgb(123,198,55)
+		​​​​​​​​Mirrankkar                     : rgb(123,198,55)
+		​​​​​​​​Mongseng                       : rgb(123,198,55)
+		​​​​​​​​Moon                           : rgb(123,198,55)
+		​​​​​​​​Necros                         : rgb(123,198,55)
+		​​​​​​​​Nether Void                    : rgb(123,198,55)
+		​​​​​​​​New Earth                      : rgb(123,198,55)
+		​​​​​​​​Obsidias                       : rgb(123,198,55)
+		​​​​​​​​Outside Mutter’s Spiral        : rgb(123,198,55)
+		​​​​​​​​Rabiah                         : rgb(123,198,55)
+		​​​​​​​​Serra’s Realm                  : rgb(123,198,55)
+		​​​​​​​​Shenmeng                       : rgb(123,198,55)
+		​​​​​​​​Skaro                          : rgb(123,198,55)
+		​​​​​​​​Spacecraft                     : rgb(123,198,55)
+		​​​​​​​​Tavelia                        : rgb(123,198,55)
+		​​​​​​​​The Abyss                      : rgb(123,198,55)
+		​​​​​​​​The Dalek Asylum               : rgb(123,198,55)
+		​​​​​​​​The Library                    : rgb(123,198,55)
+		​​​​​​​​Thunder Junction               : rgb(123,198,55)
+		​​​​​​​​Time                           : rgb(123,198,55)
+		​​​​​​​​Torwynn                        : rgb(123,198,55)
+		​​​​​​​​Trenzalore                     : rgb(123,198,55)
+		​​​​​​​​Unknown Planet                 : rgb(123,198,55)
+		​​​​​​​​Valla                          : rgb(123,198,55)
+		​​​​​​​​Vatraquaz                      : rgb(123,198,55)
+		​​​​​​​​Wildfire                       : rgb(123,198,55)
+		​​​​​​​​Zhalfir                        : rgb(123,198,55)
+		​​​​​​​​Азгол                          : rgb(123,198,55)
+		​​​​​​​​Алару                          : rgb(123,198,55)
+		​​​​​​​​Амонхет                        : rgb(123,198,55)
+		​​​​​​​​Аркавиос                       : rgb(123,198,55)
+		​​​​​​​​Беленон                        : rgb(123,198,55)
+		​​​​​​​​Врин                           : rgb(123,198,55)
+		​​​​​​​​Гобахан                        : rgb(123,198,55)
+		​​​​​​​​Доминарию                      : rgb(123,198,55)
+		​​​​​​​​Зендикар                       : rgb(123,198,55)
+		​​​​​​​​Икорию                         : rgb(123,198,55)
+		​​​​​​​​Иксалан                        : rgb(123,198,55)
+		​​​​​​​​Каладеш                        : rgb(123,198,55)
+		​​​​​​​​Калдхайм                       : rgb(123,198,55)
+		​​​​​​​​Камигаву                       : rgb(123,198,55)
+		​​​​​​​​Капенну                        : rgb(123,198,55)
+		​​​​​​​​Карсус                         : rgb(123,198,55)
+		​​​​​​​​Килем                          : rgb(123,198,55)
+		​​​​​​​​Ксерекс                        : rgb(123,198,55)
+		​​​​​​​​Лорвин                         : rgb(123,198,55)
+		​​​​​​​​Меркадию                       : rgb(123,198,55)
+		​​​​​​​​Мирродин                       : rgb(123,198,55)
+		​​​​​​​​Моаг                           : rgb(123,198,55)
+		​​​​​​​​Мураганду                      : rgb(123,198,55)
+		​​​​​​​​Новую Фирексию                 : rgb(123,198,55)
+		​​​​​​​​Пирулею                        : rgb(123,198,55)
+		​​​​​​​​Равнику                        : rgb(123,198,55)
+		​​​​​​​​Рат                            : rgb(123,198,55)
+		​​​​​​​​Регату                         : rgb(123,198,55)
+		​​​​​​​​Сеговию                        : rgb(123,198,55)
+		​​​​​​​​Скаллы                         : rgb(123,198,55)
+		​​​​​​​​Таркир                         : rgb(123,198,55)
+		​​​​​​​​Терос                          : rgb(123,198,55)
+		​​​​​​​​Улгроту                        : rgb(123,198,55)
+		​​​​​​​​Фаэруна                        : rgb(123,198,55)
+		​​​​​​​​Фиору                          : rgb(123,198,55)
+		​​​​​​​​Фирексию                       : rgb(123,198,55)
+		​​​​​​​​Шандалар                       : rgb(123,198,55)
+		​​​​​​​​Шэдоумуре                      : rgb(123,198,55)
+		​​​​​​​​Элдраин                        : rgb(123,198,55)
+		​​​​​​​​Эргамон                        : rgb(123,198,55)
+		​​​​​​​​ннистрад                       : rgb(123,198,55)
+		​​​​​​​​олваду                         : rgb(123,198,55)
+
+statistics dimension:
+	name: creature race
+	position hint: 0271
+	icon: stats/creature_subtype.png
+	description: Subtypes of the creature/tribal/kindred type, that are races.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else creature_race_statistic()
+
+statistics dimension:
+	name: creature class
+	position hint: 0272
+	icon: stats/creature_subtype.png
+	description: Subtypes of the creature/tribal/kindred type, that are classes.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else creature_class_statistic()
+
+statistics dimension:
+	name: power
+	position hint: 0300
+	icon: stats/power.png
+	description: The power of the card. Counts each side/face separately. Does not count levels on leveler cards.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else power_statistic()
+	group: 0
+	group: 1
+	group: 2
+	group: 3
+	group: 4
+	group: 5
+	group: 6
+	group: 7
+	group: 8
+	group: 9
+	group: 10
+	group: 11+
+	group: X
+	group: *
+	group: Отрицательный
+	colors:
+		0			: rgb(255,159,149)
+		1			: rgb(255,117,102)
+		2			: rgb(255,71,52)
+		3			: rgb(255,39,15)
+		4			: rgb(235,23,0)
+		5			: rgb(201,20,0)
+		6			: rgb(163,16,0)
+		7			: rgb(125,12,0)
+		8			: rgb(82,8,0)
+		9			: rgb(61,6,0)
+		10			: rgb(42,4,0)
+		11+			: rgb(0,0,0)
+		X			: rgb(128,128,128)
+		*			: rgb(128,128,128)
+		Отрицательный		: rgb(128,128,128)
+
+statistics dimension:
+	name: toughness
+	position hint: 0310
+	icon: stats/toughness.png
+	description: The toughness of the card. Counts each side/face separately. Does not count levels on leveler cards.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else toughness_statistic()
+	group: 0
+	group: 1
+	group: 2
+	group: 3
+	group: 4
+	group: 5
+	group: 6
+	group: 7
+	group: 8
+	group: 9
+	group: 10
+	group: 11+
+	group: X
+	group: *
+	group: Отрицательный
+	colors:
+		0			: rgb(186,205,230)
+		1			: rgb(147,176,214)
+		2			: rgb(103,144,198)
+		3			: rgb(64,116,184)
+		4			: rgb(37,97,175)
+		5			: rgb(15,80,166)
+		6			: rgb(13,71,146)
+		7			: rgb(11,56,116)
+		8			: rgb(8,41,87)
+		9			: rgb(5,27,56)
+		10			: rgb(1,4,26)
+		11+			: rgb(0,0,0)
+		X			: rgb(128,128,128)
+		*			: rgb(128,128,128)
+		Отрицательный		: rgb(128,128,128)
+
+statistics dimension:
+	name: loyalty
+	position hint: 0320
+	icon: stats/loyalty.png
+	description: The loyalty of a planeswalker card. Counts each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else loyalty_statistic()
+	group: 0
+	group: 1
+	group: 2
+	group: 3
+	group: 4
+	group: 5
+	group: 6
+	group: 7
+	group: 8
+	group: 9
+	group: 10
+	group: 11+
+	group: X
+	group: *
+	group: Отрицательный
+	colors:
+		0			: rgb(200,200,242)
+		1			: rgb(170,170,225)
+		2			: rgb(138,133,205)
+		3			: rgb(117,103,188)
+		4			: rgb(105,80,175)
+		5			: rgb(95,60,160)
+		6			: rgb(85,53,143)
+		7			: rgb(74,45,123)
+		8			: rgb(62,39,109)
+		9			: rgb(51,30,88)
+		10			: rgb(38,22,67)
+		11+			: rgb(0,0,0)
+		X			: rgb(128,128,128)
+		*			: rgb(128,128,128)
+		Отрицательный		: rgb(128,128,128)
+
+statistics dimension:
+	name: defense
+	position hint: 0330
+	icon: stats/defense.png
+	description: The defense of a battle card. Counts each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else defense_statistic()
+	group: 0
+	group: 1
+	group: 2
+	group: 3
+	group: 4
+	group: 5
+	group: 6
+	group: 7
+	group: 8
+	group: 9
+	group: 10
+	group: 11+
+	group: X
+	group: *
+	group: Отрицательный
+	colors:
+		0			: rgb(185,114,169)
+		1			: rgb(174,90,154)
+		2			: rgb(166,75,145)
+		3			: rgb(155,52,132)
+		4			: rgb(144,31,118)
+		5			: rgb(136,14,108)
+		6			: rgb(123,12,97)
+		7			: rgb(108,10,86)
+		8			: rgb(90,8,71)
+		9			: rgb(77,7,61)
+		10			: rgb(63,6,50)
+		11+			: rgb(0,0,0)
+		X			: rgb(128,128,128)
+		*			: rgb(128,128,128)
+		Отрицательный		: rgb(128,128,128)
+
+statistics dimension:
+	name: rarity
+	position hint: 0400
+	icon: stats/rarity.png
+	description: The rarity of the card. Counts each side/face separately.
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else rarity_statistic()
+	group: Базовая Земля
+	group: Обычный
+	group: Необычный
+	group: Редкий
+	group: Мифический Редкий
+	group: Шедевр
+	group: Специальный
+	group: Фишка
+	colors:
+		Базовая Земля		: rgb(103,64,35)
+		Обычный				: rgb(33,33,33)
+		Необычный		: rgb(187,187,187)
+		Редкий				: rgb(209,191,91)
+		Мифический Редкий		: rgb(210,96,34)
+		Шедевр		: rgb(176,11,15)
+		Специальный			: rgb(112,38,128)
+		Фишка				: rgb(15,80,166)
+
+statistics dimension:
+	name: keywords
+	position hint: 0410
+	icon: stats/keywords.png
+	description: The keywords of the card. Counts all sides/faces.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else keyword_usage(unique: true)
+
+statistics dimension:
+	name: filter (see set info)
+	position hint: 490
+	icon: stats/filter.png
+	description: Shows which cards have been filtered by the conditions written in the "filter statistics" field in the Set info tab.
+	show empty: false
+	script: filter_from_statistic()
+	colors:
+		Сохранено		: rgb(15,80,166)
+		Отфильтровано		: rgb(156,15,15)
+
+
+statistics dimension:
+	name: all mana production
+	position hint: 0500
+	icon: stats/land_production.png
+	description: Counts how many cards can produce white mana. Repeat for all other colors. Then counts how many cards can produce mana of any color, and mana of a chosen color.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else mana_production_list_statistic(check_type: "all")
+	group: C
+	group: W
+	group: U
+	group: B
+	group: R
+	group: G
+	group: Любого
+	group: Выбранного
+	colors:
+		C			: rgb(101,104,94)
+		W			: rgb(255,231,185)
+		U			: rgb(15,80,166)
+		B			: rgb(33,33,33)
+		R			: rgb(156,15,15)
+		G			: rgb(68,144,15)
+		Любого	: rgb(112,38,128)
+		Выбранного		: rgb(112,38,128)
+
+statistics dimension:
+	name: land mana prod.
+	position hint: 0510
+	icon: stats/land_production.png
+	description: Counts how many lands can produce white mana. Repeat for all other colors. Then counts how many lands can produce mana of any color, and mana of a chosen color. If either side/face is a land, the card will be counted here.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else mana_production_list_statistic(check_type: "land")
+	group: C
+	group: W
+	group: U
+	group: B
+	group: R
+	group: G
+	group: Любого
+	group: Выбранного
+	colors:
+		C			: rgb(101,104,94)
+		W			: rgb(255,231,185)
+		U			: rgb(15,80,166)
+		B			: rgb(33,33,33)
+		R			: rgb(156,15,15)
+		G			: rgb(68,144,15)
+		Любого	: rgb(112,38,128)
+		Выбранного		: rgb(112,38,128)
+
+statistics dimension:
+	name: nonland mana prod.
+	position hint: 0520
+	icon: stats/land_production.png
+	description: Counts how many non-land cards can produce white mana. Repeat for all other colors. Then counts how many non-land cards can produce mana of any color, and mana of a chosen color.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else mana_production_list_statistic(check_type: "nonland")
+	group: C
+	group: W
+	group: U
+	group: B
+	group: R
+	group: G
+	group: Любого
+	group: Выбранного
+	colors:
+		C			: rgb(101,104,94)
+		W			: rgb(255,231,185)
+		U			: rgb(15,80,166)
+		B			: rgb(33,33,33)
+		R			: rgb(156,15,15)
+		G			: rgb(68,144,15)
+		Любого	: rgb(112,38,128)
+		Выбранного		: rgb(112,38,128)
+
+statistics dimension:
+	name: pip count (Casting)
+	position hint: 0600
+	icon: stats/color_pips.png
+	description: Counts the number of casting costs that contain one colored pip. Repeat for all other amounts.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else cc_colored_pips_count_statistic()
+	group: 0
+	group: 1
+	group: 2
+	group: 3
+	group: 4
+	group: 5
+	group: 6
+	group: 7
+	group: 8+
+	colors:
+		0	: rgb(101,104,94)
+		1	: rgb(113,94,109)
+		2	: rgb(125,84,124)
+		3	: rgb(137,74,139)
+		4	: rgb(149,64,154)
+		5	: rgb(161,54,169)
+		6	: rgb(173,44,184)
+		7	: rgb(185,34,199)
+		8+	: rgb(197,24,214)
+
+statistics dimension:
+	name: pip colors (Casting)
+	position hint: 0630
+	icon: stats/color_pips.png
+	description: Counts how many cards have a single white pip in their casting cost. Repeat for two white pips. Then three, then four+, then for all other colors. Counts each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else cc_colored_pips_statistic()
+	colors:
+		​C		: rgb(207,207,207)					# There is a zero width space before the "C" so that they always appear first.
+		​CC		: rgb(175,175,175)
+		​CCC		: rgb(141,141,141)
+		​CCCC+	: rgb(135,135,135)
+		​​W		: rgb(255,241,195)					# There are two zero width spaces before the "W" so that they always appear after the "C".
+		​​WW		: rgb(236,215,166)
+		​​WWW		: rgb(211,183,127)
+		​​WWWW+	: rgb(186,157,101)
+		​​​U		: rgb(67,111,202)					# There are three zero width spaces before the "U", etc...
+		​​​UU		: rgb(28,82,169)
+		​​​UUU		: rgb(0,63,148)
+		​​​UUUU+	: rgb(0,51,134)
+		​​​​B		: rgb(46,46,46)
+		​​​​BB		: rgb(30,30,30)
+		​​​​BBB		: rgb(15,15,15)
+		​​​​BBBB+	: rgb(0,0,0)
+		​​​​​R		: rgb(190,54,39)
+		​​​​​RR		: rgb(165,31,20)
+		​​​​​RRR		: rgb(137,0,0)
+		​​​​​RRRR+	: rgb(116,0,0)
+		​​​​​​G		: rgb(95,170,48)
+		​​​​​​GG		: rgb(63,139,10)
+		​​​​​​GGG		: rgb(46,123,0)
+		​​​​​​GGGG+	: rgb(18,102,0)
+
+statistics dimension:
+	name: total pips (Casting)
+	position hint: 0660
+	icon: stats/color_pips.png
+	description: Counts the total number of white pips in all the casting costs. Repeat for all other colors.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else cc_colored_pips_totals_statistic()
+	group: C
+	group: W
+	group: U
+	group: B
+	group: R
+	group: G
+	colors:
+		C	: rgb(101,104,94)
+		W	: rgb(255,231,185)
+		U	: rgb(15,80,166)
+		B	: rgb(33,33,33)
+		R	: rgb(156,15,15)
+		G	: rgb(68,144,15)
+
+statistics dimension:
+	name: pip count (Ability)
+	position hint: 0610
+	icon: stats/color_pips.png
+	description: Counts the number of activated/triggered/keyworded ability costs that contain one colored pip. Repeat for all other amounts.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else ability_colored_pips_count_statistic()
+	group: 0
+	group: 1
+	group: 2
+	group: 3
+	group: 4
+	group: 5
+	group: 6
+	group: 7
+	group: 8+
+	colors:
+		0	: rgb(101,104,94)
+		1	: rgb(113,94,109)
+		2	: rgb(125,84,124)
+		3	: rgb(137,74,139)
+		4	: rgb(149,64,154)
+		5	: rgb(161,54,169)
+		6	: rgb(173,44,184)
+		7	: rgb(185,34,199)
+		8+	: rgb(197,24,214)
+
+statistics dimension:
+	name: pip colors (Ability)
+	position hint: 0640
+	icon: stats/color_pips.png
+	description: Counts how many activated/triggered/keyworded abilities have a single white pip in their cost. Repeat for two white pips. Then three, then four+, then for all other colors. Counts each ability on each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else ability_colored_pips_statistic()
+	colors:
+		​C		: rgb(207,207,207)					# There is a zero width space before the "C" so that they always appear first.
+		​CC		: rgb(175,175,175)
+		​CCC		: rgb(141,141,141)
+		​CCCC+	: rgb(135,135,135)
+		​​W		: rgb(255,241,195)					# There are two zero width spaces before the "W" so that they always appear after the "C".
+		​​WW		: rgb(236,215,166)
+		​​WWW		: rgb(211,183,127)
+		​​WWWW+	: rgb(186,157,101)
+		​​​U		: rgb(67,111,202)					# There are three zero width spaces before the "U", etc...
+		​​​UU		: rgb(28,82,169)
+		​​​UUU		: rgb(0,63,148)
+		​​​UUUU+	: rgb(0,51,134)
+		​​​​B		: rgb(46,46,46)
+		​​​​BB		: rgb(30,30,30)
+		​​​​BBB		: rgb(15,15,15)
+		​​​​BBBB+	: rgb(0,0,0)
+		​​​​​R		: rgb(190,54,39)
+		​​​​​RR		: rgb(165,31,20)
+		​​​​​RRR		: rgb(137,0,0)
+		​​​​​RRRR+	: rgb(116,0,0)
+		​​​​​​G		: rgb(95,170,48)
+		​​​​​​GG		: rgb(63,139,10)
+		​​​​​​GGG		: rgb(46,123,0)
+		​​​​​​GGGG+	: rgb(18,102,0)
+
+statistics dimension:
+	name: total pips (Ability)
+	position hint: 0670
+	icon: stats/color_pips.png
+	description: Counts the total number of white pips in all the activated/triggered/keyworded ability costs. Repeat for all other colors.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else ability_colored_pips_totals_statistic()
+	group: C
+	group: W
+	group: U
+	group: B
+	group: R
+	group: G
+	colors:
+		C	: rgb(101,104,94)
+		W	: rgb(255,231,185)
+		U	: rgb(15,80,166)
+		B	: rgb(33,33,33)
+		R	: rgb(156,15,15)
+		G	: rgb(68,144,15)
+
+statistics dimension:
+	name: pip count (Combined)
+	position hint: 0620
+	icon: stats/color_pips.png
+	description: Counts the number of costs that contain one colored pip. Repeat for all other amounts.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else colored_pips_count_totals_statistic()
+	group: 0
+	group: 1
+	group: 2
+	group: 3
+	group: 4
+	group: 5
+	group: 6
+	group: 7
+	group: 8+
+	colors:
+		0	: rgb(101,104,94)
+		1	: rgb(113,94,109)
+		2	: rgb(125,84,124)
+		3	: rgb(137,74,139)
+		4	: rgb(149,64,154)
+		5	: rgb(161,54,169)
+		6	: rgb(173,44,184)
+		7	: rgb(185,34,199)
+		8+	: rgb(197,24,214)
+
+statistics dimension:
+	name: pip color (Combined)
+	position hint: 0650
+	icon: stats/color_pips.png
+	description: Counts how many costs contain a single white pip. Repeat for two white pips. Then three, then four+, then for all other colors. Counts each cost on each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else colored_pips_statistic()
+	colors:
+		​C		: rgb(207,207,207)					# There is a zero width space before the "C" so that they always appear first.
+		​CC		: rgb(175,175,175)
+		​CCC		: rgb(141,141,141)
+		​CCCC+	: rgb(135,135,135)
+		​​W		: rgb(255,241,195)					# There are two zero width spaces before the "W" so that they always appear after the "C".
+		​​WW		: rgb(236,215,166)
+		​​WWW		: rgb(211,183,127)
+		​​WWWW+	: rgb(186,157,101)
+		​​​U		: rgb(67,111,202)					# There are three zero width spaces before the "U", etc...
+		​​​UU		: rgb(28,82,169)
+		​​​UUU		: rgb(0,63,148)
+		​​​UUUU+	: rgb(0,51,134)
+		​​​​B		: rgb(46,46,46)
+		​​​​BB		: rgb(30,30,30)
+		​​​​BBB		: rgb(15,15,15)
+		​​​​BBBB+	: rgb(0,0,0)
+		​​​​​R		: rgb(190,54,39)
+		​​​​​RR		: rgb(165,31,20)
+		​​​​​RRR		: rgb(137,0,0)
+		​​​​​RRRR+	: rgb(116,0,0)
+		​​​​​​G		: rgb(95,170,48)
+		​​​​​​GG		: rgb(63,139,10)
+		​​​​​​GGG		: rgb(46,123,0)
+		​​​​​​GGGG+	: rgb(18,102,0)
+
+statistics dimension:
+	name: total pips (Combined)
+	position hint: 0680
+	icon: stats/color_pips.png
+	description: Counts the total number of white pips in all the costs. Repeat for all other colors.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else colored_pips_totals_statistic()
+	group: C
+	group: W
+	group: U
+	group: B
+	group: R
+	group: G
+	colors:
+		C	: rgb(101,104,94)
+		W	: rgb(255,231,185)
+		U	: rgb(15,80,166)
+		B	: rgb(33,33,33)
+		R	: rgb(156,15,15)
+		G	: rgb(68,144,15)
+
+statistics dimension:
+	name: word count
+	position hint: 0700
+	icon: stats/text_length.png
+	description: How many words are in the card’s various rule texts.
+	numeric: true
+	bin size: 5
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else total_word_count_statistic()
+
+#statistics dimension:
+#	name: line count
+#	position hint: 1110
+#	icon: stats/text_length.png
+#	description: How many lines are in the card’s various rule texts.
+#	numeric: true
+#	show empty: false
+#	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else total_line_count_statistic()		# Not reliable atm.
+
+statistics dimension:
+	name: paragraph count
+	position hint: 0710
+	icon: stats/text_length.png
+	description: How many paragraphs are in the card’s various rule texts.
+	numeric: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else total_paragraph_count_statistic()
+
+statistics dimension:
+	name: card notes words
+	position hint: 0720
+	icon: stats/text_length.png
+	description: Counts all the words that appear in the card notes.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else split_notes_words_statistic(card.notes)
+
+statistics dimension:
+	name: card notes clauses
+	position hint: 0730
+	icon: stats/text_length.png
+	description: Cuts the card notes using the regex specified in the set info tab.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else split_notes_clauses_statistic()
+
+statistics dimension:
+	name: watermark
+	position hint: 0800
+	icon: stats/watermark.png
+	description: The watermark of the card. Counts each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else watermark_statistic()
+
+statistics dimension:
+	name: stamp
+	position hint: 0810
+	icon: stats/stamp.png
+	description: The security stamp of the card. Counts each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else stamp_statistic()
+
+statistics dimension:
+	name: symbol
+	position hint: 0820
+	icon: stats/symbol.png
+	description: The symbol of the card (Tombstone, Alchemy). Counts each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else symbol_statistic()
+
+
+statistics dimension:
+	name: illustrator
+	position hint: 0830
+	icon: stats/illustrator.png
+	description: The artists of the card. Counts each side/face separately.
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else illustrator_statistic()
+
+statistics dimension:
+	name: template
+	position hint: 0840
+	icon: stats/stylesheet.png
+	description: The stylesheet used by the card.
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else stylesheet.short_name
+
+statistics dimension:
+	name: average opening hand
+	position hint: 1000
+	icon: stats/hand.png
+	description: How many cards of each type on average will be in an opening hand.
+	split list: true
+	show empty: false
+	script: if trim_from_draw_statistic() then "" else average_opening_hand_statistic()
+	global_script: average_opening_hand_global_statistic()
+
+statistics dimension:
+	name: land drop hit % (Play)
+	position hint: 1100
+	icon: stats/land_drops.png
+	description: If the set is a deck, probability of hitting every single land drop up to the given turn, when on the play. Always excludes cards with the word 'commander' in their card notes, as well as tokens, emblems, dungeons, conspiracies, heroes, vanguards, schemes, planes and phenomenons.
+	split list: true
+	show empty: false
+	script: land_drop_hit_percentage_statistic(start: 6)
+
+statistics dimension:
+	name: land drop hit % (Draw)
+	position hint: 1110
+	icon: stats/land_drops.png
+	description: If the set is a deck, probability of hitting every single land drop up to the given turn, when on the draw. Always excludes cards with the word 'commander' in their card notes, as well as tokens, emblems, dungeons, conspiracies, heroes, vanguards, schemes, planes and phenomenons.
+	split list: true
+	show empty: false
+	script: land_drop_hit_percentage_statistic(start: 7)
+
+statistics dimension:
+	name: color count
+	position hint: 1500
+	icon: stats/color.png
+	description: How many cards have one color, how many have two, three, etc...
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else color_count_statistic()
+	group: 0
+	group: 1
+	group: 2
+	group: 3
+	group: 4
+	group: 5
+	colors:
+		0	: rgb(101,104,94)
+		1	: rgb(113,94,109)
+		2	: rgb(125,84,124)
+		3	: rgb(137,74,139)
+		4	: rgb(149,64,154)
+		5	: rgb(161,54,169)
+
+statistics dimension:
+	name: color identity count
+	position hint: 1510
+	icon: stats/color.png
+	description: How many cards have one color in their color identity, how many have two, three, etc...
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else color_identity_count_statistic()
+	group: 0
+	group: 1
+	group: 2
+	group: 3
+	group: 4
+	group: 5
+	colors:
+		0	: rgb(101,104,94)
+		1	: rgb(113,94,109)
+		2	: rgb(125,84,124)
+		3	: rgb(137,74,139)
+		4	: rgb(149,64,154)
+		5	: rgb(161,54,169)
+
+statistics dimension:
+	name: color (Secondary Face)
+	position hint: 1520
+	icon: stats/color.png
+	description: Color of the back side or secondary face (like on adventures for example).
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else prefixed_back_face_color_statistic()
+	colors:
+		​C		: rgb(101,104,94)					# There is a zero width space before the "C" so that it always appears first.
+		​​W		: rgb(255,231,185)					# There are two zero width spaces before the "W" so that it always appear after the "C".
+		​​​U		: rgb(15,80,166)					# There are three zero width spaces before the "U", etc...
+		​​​​B		: rgb(22,22,22)
+		​​​​​R		: rgb(156,15,15)
+		​​​​​​G		: rgb(68,144,15)
+		​​​​​​​WU		: rgb(254,192,80)
+		​​​​​​​​WB		: rgb(254,192,80)
+		​​​​​​​​​WR		: rgb(254,192,80)
+		​​​​​​​​​​WG		: rgb(254,192,80)
+		​​​​​​​​​​​UB		: rgb(254,192,80)
+		​​​​​​​​​​​​UR		: rgb(254,192,80)
+		​​​​​​​​​​​​​UG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​BR		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​BG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​​RG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​​​WUB		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​WUR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​WUG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​WBR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​WBG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​WRG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​UBR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​UBG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​URG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​BRG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBR	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WURG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WBRG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​UBRG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBRG	: rgb(224,133,8)
+
+statistics dimension:
+	name: color (All Faces)
+	position hint: 1530
+	icon: stats/color.png
+	description: Combined color of all the sides/faces.
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else prefixed_all_faces_color_statistic()
+	colors:
+		​C		: rgb(101,104,94)					# There is a zero width space before the "C" so that it always appears first.
+		​​W		: rgb(255,231,185)					# There are two zero width spaces before the "W" so that it always appear after the "C".
+		​​​U		: rgb(15,80,166)					# There are three zero width spaces before the "U", etc...
+		​​​​B		: rgb(22,22,22)
+		​​​​​R		: rgb(156,15,15)
+		​​​​​​G		: rgb(68,144,15)
+		​​​​​​​WU		: rgb(254,192,80)
+		​​​​​​​​WB		: rgb(254,192,80)
+		​​​​​​​​​WR		: rgb(254,192,80)
+		​​​​​​​​​​WG		: rgb(254,192,80)
+		​​​​​​​​​​​UB		: rgb(254,192,80)
+		​​​​​​​​​​​​UR		: rgb(254,192,80)
+		​​​​​​​​​​​​​UG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​BR		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​BG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​​RG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​​​WUB		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​WUR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​WUG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​WBR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​WBG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​WRG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​UBR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​UBG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​URG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​BRG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBR	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WURG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WBRG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​UBRG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBRG	: rgb(224,133,8)
+
+statistics dimension:
+	name: color (Promos)
+	position hint: 1540
+	icon: stats/color.png
+	description: How many promo cards of each color combination are in the set.
+	show empty: false
+	script: if card.rarity == "special" or card.rarity == "masterpiece" then prefixed_color_statistic() else ""
+	colors:
+		​C		: rgb(101,104,94)					# There is a zero width space before the "C" so that it always appears first.
+		​​W		: rgb(255,231,185)					# There are two zero width spaces before the "W" so that it always appear after the "C".
+		​​​U		: rgb(15,80,166)					# There are three zero width spaces before the "U", etc...
+		​​​​B		: rgb(22,22,22)
+		​​​​​R		: rgb(156,15,15)
+		​​​​​​G		: rgb(68,144,15)
+		​​​​​​​WU		: rgb(254,192,80)
+		​​​​​​​​WB		: rgb(254,192,80)
+		​​​​​​​​​WR		: rgb(254,192,80)
+		​​​​​​​​​​WG		: rgb(254,192,80)
+		​​​​​​​​​​​UB		: rgb(254,192,80)
+		​​​​​​​​​​​​UR		: rgb(254,192,80)
+		​​​​​​​​​​​​​UG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​BR		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​BG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​​RG		: rgb(254,192,80)
+		​​​​​​​​​​​​​​​​​WUB		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​WUR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​WUG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​WBR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​WBG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​WRG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​UBR		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​UBG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​URG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​BRG		: rgb(244,177,10)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBR	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WURG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WBRG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​UBRG	: rgb(232,154,9)
+		​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​WUBRG	: rgb(224,133,8)
+
+statistics dimension:
+	name: omniverse color
+	position hint: 1550
+	icon: stats/color.png
+	description: The color category of the card, taking into account omniverse colors (Purple, Pink, Yellow, Orange and Brown).
+	split list: true
+	show empty: false
+	script: if filter_from_statistic() == "Отфильтровано" or trim_from_statistic() then "" else omniverse_color_statistic()
+	group: Земля
+	group: Бесцветный
+	group: Артефакт
+	group: Белый
+	group: Синий
+	group: Черный
+	group: Красный
+	group: Зеленый
+	group: Фиолетовый
+	group: Розовый
+	group: Желтый
+	group: Апельсин
+	group: Коричневый
+	group: Многоцветный
+	group: Гибридный
+	colors:
+		Белый		: rgb(255,231,185)
+		Синий		: rgb(15,80,166)
+		Черный		: rgb(33,33,33)
+		Красный		: rgb(156,15,15)
+		Зеленый		: rgb(68,144,15)
+		Фиолетовый		: rgb(150,100,160)
+		Розовый		: rgb(255,175,200)
+		Желтый		: rgb(242,247,94)
+		Апельсин		: rgb(255,181,121)
+		Коричневый		: rgb(191,171,144)
+		Бесцветный	: rgb(101,104,94)
+		Артефакт	: rgb(109,132,158)
+		Многоцветный	: rgb(244,177,10)
+		Земля		: rgb(103,64,35)
+		Гибридный		: rgb(112,38,128)

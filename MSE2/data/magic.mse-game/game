@@ -1,0 +1,36 @@
+﻿mse version: 2.5.8
+short name: Magic
+full name: Magic the Gathering
+installer group: magic/game files
+icon: card-back.png
+position hint: 01
+
+version: 2025-06-14
+depends on:
+	package: magic-blends.mse-include
+	version: 2024-10-01
+depends on:
+	package: magic-modules.mse-include
+	version: 2024-10-01
+
+########################################## Load the main scripts
+
+init script: include file: script
+
+########################################## Load all the fields and lists
+
+include file: game_script
+include file: card_fields
+include file: set_fields
+include localized file: statistics
+include file: add_cards_scripts
+include file: packs
+include localized file: keywords
+include file: word_lists
+include file: auto_replace
+include file: json_paths
+
+########################################## Load custom user addons
+########################################## Add/overwrite things in this file rather than editing the above files
+
+include file: custom_addons
