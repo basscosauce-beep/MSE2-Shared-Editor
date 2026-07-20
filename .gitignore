@@ -1,0 +1,7 @@
+# Personal user config - never synced to GitHub
+creator.txt
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini

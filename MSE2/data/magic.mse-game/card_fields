@@ -991,6 +991,15 @@ card field:
 		)
 card field:
 	type: text
+	name: creator
+	description: Who made this card? Enter your initials or name.
+	card list visible: true
+	card list name: By
+	card list column: 0201
+	card list width: 60
+	show statistics: false
+card field:
+	type: text
 	name: type 2
 	alt name: typeline 2
 	alt name: type line 2
