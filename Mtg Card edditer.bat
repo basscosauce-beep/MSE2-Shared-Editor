@@ -49,6 +49,8 @@ xcopy /E /Y /I /Q /H "%SRC%\mingit"       "%INSTALL_DIR%\mingit"      >nul
 if exist "%SRC%\Shared-Set" xcopy /E /Y /I /Q /H "%SRC%\Shared-Set" "%INSTALL_DIR%\Shared-Set" >nul
 copy /Y "%SRC%\Launch_Shared_Editor.bat"  "%INSTALL_DIR%\Launch_Shared_Editor.bat" >nul
 copy /Y "%SRC%\Launch_Silent.vbs"         "%INSTALL_DIR%\Launch_Silent.vbs" >nul
+copy /Y "%SRC%\Settings.ps1"              "%INSTALL_DIR%\Settings.ps1" >nul
+copy /Y "%SRC%\Settings.vbs"              "%INSTALL_DIR%\Settings.vbs" >nul
 
 :: Initialize git in the install dir so future pulls work
 set "PATH=%INSTALL_DIR%\mingit\cmd;%PATH%"
@@ -66,6 +68,7 @@ del /f /q "%TEMP_ZIP%" >nul 2>&1
 :: Create Desktop shortcut
 echo Creating Desktop Shortcut...
 powershell -Command "$WshShell = New-Object -comObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%SHORTCUT_PATH%'); $Shortcut.TargetPath = '%INSTALL_DIR%\Launch_Silent.vbs'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.IconLocation = '%INSTALL_DIR%\MSE2\magicseteditor.exe'; $Shortcut.Description = 'Launch Magic Set Editor 2 - Shared Cloud Edition'; $Shortcut.Save()"
+powershell -Command "$WshShell = New-Object -comObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%USERPROFILE%\Desktop\MTG Card Editor - Settings.lnk'); $Shortcut.TargetPath = '%INSTALL_DIR%\Settings.vbs'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.IconLocation = '%INSTALL_DIR%\MSE2\magicseteditor.exe, 0'; $Shortcut.Description = 'Change your name and initials for MTG Card Editor'; $Shortcut.Save()"
 
 echo.
 echo ==================================================
