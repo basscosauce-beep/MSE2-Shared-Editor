@@ -998,7 +998,6 @@ card field:
 	card list column: 1900
 	card list width: 60
 	show statistics: false
-	default: creator_name
 card field:
 	type: text
 	name: type 2

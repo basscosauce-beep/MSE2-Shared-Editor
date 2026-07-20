@@ -1,5 +1,10 @@
 
 add cards script:
+	name: &Add Card
+	description: Add a new blank card stamped with your name in the By column
+	script: [new_card([creator: creator_name])]
+
+add cards script:
 	name: &Basic Lands
 	description: Adds 5 basic lands to the set (Plains, Island, Swamp, Mountain, Forest)
 	script:
