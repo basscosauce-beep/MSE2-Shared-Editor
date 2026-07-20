@@ -17,9 +17,11 @@ if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 :: Copy all files from the current directory (where the installer is) to the install dir
 :: Exclude the installer itself so we don't copy it needlessly
 echo Copying files...
-xcopy /E /Y /I /Q ".\MSE2" "%INSTALL_DIR%\MSE2" >nul
-xcopy /E /Y /I /Q ".\SyncEngine" "%INSTALL_DIR%\SyncEngine" >nul
-if exist ".\Shared-Set" xcopy /E /Y /I /Q ".\Shared-Set" "%INSTALL_DIR%\Shared-Set" >nul
+xcopy /E /Y /I /Q /H ".\MSE2" "%INSTALL_DIR%\MSE2" >nul
+xcopy /E /Y /I /Q /H ".\SyncEngine" "%INSTALL_DIR%\SyncEngine" >nul
+xcopy /E /Y /I /Q /H ".\mingit" "%INSTALL_DIR%\mingit" >nul
+xcopy /E /Y /I /Q /H ".\.git" "%INSTALL_DIR%\.git" >nul
+if exist ".\Shared-Set" xcopy /E /Y /I /Q /H ".\Shared-Set" "%INSTALL_DIR%\Shared-Set" >nul
 copy /Y ".\Launch_Shared_Editor.bat" "%INSTALL_DIR%\Launch_Shared_Editor.bat" >nul
 
 echo.
