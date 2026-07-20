@@ -76,7 +76,14 @@ class MSEMenuAddon {
     static void OnWinEvent(IntPtr hook, uint eventType, IntPtr hwnd,
                            int idObject, int idChild, uint thread, uint time) {
         if ((uint)idChild == SETTINGS_ID) {
-            Process.Start("wscript.exe", "\"" + scriptPath + "\"");
+            // Delay launch slightly so Windows exits menu-loop mode first
+            // (menu-loop blocks input to other windows if we open immediately)
+            var t = new Thread(() => {
+                Thread.Sleep(300);
+                Process.Start("wscript.exe", "\"" + scriptPath + "\"");
+            });
+            t.IsBackground = true;
+            t.Start();
         }
     }
 }
