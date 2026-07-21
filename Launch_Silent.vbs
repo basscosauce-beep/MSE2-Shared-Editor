@@ -71,9 +71,9 @@ If cscPath <> "" And Not objFSO.FileExists(strDir & "\MenuAddon.exe") Then
     End If
 End If
 
-' ---- Start Menu Addon (adds Account Settings to MSE2 menu bar) ----
+' ---- Start Menu Addon (adds Account Settings and Goals to MSE2 menu bar) ----
 If objFSO.FileExists(strDir & "\MenuAddon.exe") Then
-    objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs"" """ & strDir & "\GoalTracker.vbs""", 0, False
+    objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs"" """ & strDir & "\GoalTracker.vbs"" """ & strDir & "\SyncEngine\SyncNow.vbs""", 0, False
 End If
 
 ' ---- Launch MSE2 ----

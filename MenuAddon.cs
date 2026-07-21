@@ -13,6 +13,7 @@ class MSEMenuAddon {
     const uint EVENT_OBJECT_INVOKED  = 0x8013;
     const uint SETTINGS_ID  = 9876;
     const uint GOALS_ID     = 9877;
+    const uint SYNC_ID      = 9878;
 
     delegate void WinEventProc(IntPtr hook, uint eventType, IntPtr hwnd,
                                int idObject, int idChild, uint thread, uint time);
@@ -28,12 +29,14 @@ class MSEMenuAddon {
 
     static string settingsScriptPath = "";
     static string goalsScriptPath = "";
+    static string syncScriptPath = "";
     static IntPtr hookHandle = IntPtr.Zero;
     static WinEventProc del; // prevent GC
 
     static void Main(string[] args) {
         if (args.Length > 0) settingsScriptPath = args[0];
         if (args.Length > 1) goalsScriptPath = args[1];
+        if (args.Length > 2) syncScriptPath = args[2];
 
         // Install WinEvent hook immediately (catches clicks across all window handles)
         del = OnWinEvent;
@@ -72,6 +75,7 @@ class MSEMenuAddon {
         }
 
         AppendMenu(hMenu, MF_SEPARATOR, 0, null);
+        AppendMenu(hMenu, MF_STRING, SYNC_ID, "\uD83D\uDD04 Sync Now");
         AppendMenu(hMenu, MF_STRING, GOALS_ID, "\uD83D\uDCCA Goals");
         AppendMenu(hMenu, MF_STRING, SETTINGS_ID, "\u2699 Account");
         DrawMenuBar(hwnd);
@@ -90,6 +94,13 @@ class MSEMenuAddon {
             var t = new Thread(() => {
                 Thread.Sleep(300);
                 Process.Start("wscript.exe", "\"" + goalsScriptPath + "\"");
+            });
+            t.IsBackground = true;
+            t.Start();
+        } else if ((uint)idChild == SYNC_ID && syncScriptPath != "") {
+            var t = new Thread(() => {
+                Thread.Sleep(300);
+                Process.Start("wscript.exe", "\"" + syncScriptPath + "\"");
             });
             t.IsBackground = true;
             t.Start();
