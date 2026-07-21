@@ -75,7 +75,7 @@ class MSEMenuAddon {
         }
 
         AppendMenu(hMenu, MF_SEPARATOR, 0, null);
-        AppendMenu(hMenu, MF_STRING, SYNC_ID, "\uD83D\uDD04 Sync Now");
+        AppendMenu(hMenu, MF_STRING, SYNC_ID, "\uD83D\uDD04 Sync Now (v1.0.4)");
         AppendMenu(hMenu, MF_STRING, GOALS_ID, "\uD83D\uDCCA Goals");
         AppendMenu(hMenu, MF_STRING, SETTINGS_ID, "\u2699 Account");
         DrawMenuBar(hwnd);
