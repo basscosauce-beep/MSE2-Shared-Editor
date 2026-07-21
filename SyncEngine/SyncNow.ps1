@@ -10,6 +10,14 @@ $p1 = "ghp_2g4dOrh3klYwVMo6o"
 $p2 = "FNfD8iUKfATTq3ezyS4"
 & $gitCmd -C $repoDir remote set-url origin "https://basscosauce-beep:$p1$p2@github.com/basscosauce-beep/MSE2-Shared-Editor.git" *>$null
 
+# Auto-repair: if in detached HEAD or missing main branch, check it out properly
+$branch = (& $gitCmd -C $repoDir branch --show-current 2>$null).Trim()
+if ($branch -ne "main") {
+    & $gitCmd -C $repoDir fetch origin *>$null
+    & $gitCmd -C $repoDir checkout -B main origin/main *>$null
+    & $gitCmd -C $repoDir branch --set-upstream-to=origin/main main *>$null
+}
+
 # Kill MSE2 to release file locks
 Write-Host "Closing Magic Set Editor to unlock files..."
 Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue

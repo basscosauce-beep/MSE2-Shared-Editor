@@ -12,6 +12,14 @@ $p1 = "ghp_2g4dOrh3klYwVMo6o"
 $p2 = "FNfD8iUKfATTq3ezyS4"
 & $gitCmd -C "$PSScriptRoot\.." remote set-url origin "https://basscosauce-beep:$p1$p2@github.com/basscosauce-beep/MSE2-Shared-Editor.git" *>$null
 
+# Auto-repair: if in detached HEAD or missing main branch, check it out properly
+$branch = (& $gitCmd -C "$PSScriptRoot\.." branch --show-current 2>$null).Trim()
+if ($branch -ne "main") {
+    & $gitCmd -C "$PSScriptRoot\.." fetch origin *>$null
+    & $gitCmd -C "$PSScriptRoot\.." checkout -B main origin/main *>$null
+    & $gitCmd -C "$PSScriptRoot\.." branch --set-upstream-to=origin/main main *>$null
+}
+
 if (-not (Test-Path $sharedDir)) {
     New-Item -ItemType Directory -Path $sharedDir | Out-Null
 }
