@@ -1,4 +1,4 @@
-﻿# Ensure only one instance runs
+# Ensure only one instance runs
 $currentProc = $PID
 Get-WmiObject Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -match "sync_engine.ps1" -and $_.ProcessId -ne $currentProc } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
@@ -70,7 +70,29 @@ Write-Host "[Sync Engine] Background Sync Engine Active! Watching for card saves
 while ($true) {
     Start-Sleep -Seconds 30
     if (-not $script:isSyncing) {
-        & $gitCmd -C "$PSScriptRoot\.." pull origin main *>$null
+        & $gitCmd -C "$PSScriptRoot\.." pull origin main --rebase *>$null
+        if ($LASTEXITCODE -ne 0) {
+            $repoDir = "$PSScriptRoot\.."
+            if ((Test-Path "$repoDir\.git\rebase-merge") -or (Test-Path "$repoDir\.git\rebase-apply")) {
+                # Abort the frozen rebase
+                & $gitCmd -C $repoDir rebase --abort *>$null
+                
+                # Backup to Desktop
+                $desktopPath = [Environment]::GetFolderPath("Desktop")
+                Get-ChildItem -Path "$repoDir\Shared-Set" -Filter "*.mse-set" -Recurse | ForEach-Object {
+                    $backupName = $_.BaseName + "_Collision_Backup" + $_.Extension
+                    Copy-Item -Path $_.FullName -Destination "$desktopPath\$backupName" -Force
+                }
+                
+                # Force a hard reset to accept cloud's version
+                & $gitCmd -C $repoDir fetch origin *>$null
+                & $gitCmd -C $repoDir reset --hard origin/main *>$null
+                
+                # Alert user
+                Add-Type -AssemblyName System.Windows.Forms
+                [System.Windows.Forms.MessageBox]::Show("A cloud collision was detected in the background (someone else uploaded cards at the exact same time as you).`n`nYour local cards have been safely backed up to your Desktop as '_Collision_Backup.mse-set'.`n`nYour game has been automatically synced with their cards. You can now open your backup file in Magic Set Editor and copy/paste your cards into the main set!", "Collision Auto-Resolved", 'OK', 'Information')
+            }
+        }
     }
 }
 
