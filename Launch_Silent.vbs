@@ -6,22 +6,8 @@ Set objFSO = CreateObject("Scripting.FileSystemObject")
 
 strDir = objFSO.GetParentFolderName(WScript.ScriptFullName)
 strGit = strDir & "\mingit\cmd\git.exe"
-strNode = ""
 strConfigFile = strDir & "\creator.txt"
 strCustomScript = strDir & "\MSE2\data\magic.mse-game\custom_script"
-
-' ---- Find Node.js ----
-Dim nodePaths(2)
-nodePaths(0) = "C:\Program Files\nodejs\node.exe"
-nodePaths(1) = "C:\Program Files (x86)\nodejs\node.exe"
-nodePaths(2) = objShell.ExpandEnvironmentStrings("%APPDATA%") & "\nvm\current\node.exe"
-Dim i
-For i = 0 To 2
-    If objFSO.FileExists(nodePaths(i)) Then
-        strNode = nodePaths(i)
-        Exit For
-    End If
-Next
 
 ' ---- Git pull (silent, no-rebase) ----
 objShell.Environment("PROCESS")("GIT_TERMINAL_PROMPT") = "0"
@@ -55,10 +41,8 @@ f.WriteLine ""
 f.WriteLine "example_script_so_it_doesnt_die := {""""}"
 f.Close
 
-' ---- Start Sync Engine silently (if node exists) ----
-If strNode <> "" Then
-    objShell.Run """" & strNode & """ """ & strDir & "\SyncEngine\sync_engine.js""", 0, False
-End If
+' ---- Start Sync Engine silently ----
+objShell.Run "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File """ & strDir & "\SyncEngine\sync_engine.ps1""", 0, False
 
 ' ---- Compile MenuAddon.exe if missing (uses .NET Framework built into Windows) ----
 Dim cscPath
@@ -69,12 +53,15 @@ For i = 0 To 1
     If objFSO.FileExists(cscCandidates(i)) Then cscPath = cscCandidates(i)
 Next
 If cscPath <> "" And Not objFSO.FileExists(strDir & "\MenuAddon.exe") Then
-    objShell.Run """" & cscPath & """ /nologo /r:System.Windows.Forms.dll /out:""" & strDir & "\MenuAddon.exe"" """ & strDir & "\MenuAddon.cs""", 0, True
+    If objFSO.FileExists(strDir & "\MenuAddon.cs") Then
+        objShell.Run """" & cscPath & """ /nologo /r:System.Windows.Forms.dll /out:""" & strDir & "\MenuAddon.exe"" """ & strDir & "\MenuAddon.cs""", 0, True
+    End If
 End If
 
 ' ---- Start Menu Addon (adds Account Settings to MSE2 menu bar) ----
-objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs"" """ & strDir & "\GoalTracker.vbs""", 0, False
+If objFSO.FileExists(strDir & "\MenuAddon.exe") Then
+    objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs"" """ & strDir & "\GoalTracker.vbs""", 0, False
+End If
 
 ' ---- Launch MSE2 ----
 objShell.Run """" & strDir & "\MSE2\magicseteditor.exe""", 1, False
-

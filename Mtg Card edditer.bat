@@ -51,6 +51,10 @@ copy /Y "%SRC%\Launch_Shared_Editor.bat"  "%INSTALL_DIR%\Launch_Shared_Editor.ba
 copy /Y "%SRC%\Launch_Silent.vbs"         "%INSTALL_DIR%\Launch_Silent.vbs" >nul
 copy /Y "%SRC%\Settings.ps1"              "%INSTALL_DIR%\Settings.ps1" >nul
 copy /Y "%SRC%\Settings.vbs"              "%INSTALL_DIR%\Settings.vbs" >nul
+copy /Y "%SRC%\MenuAddon.cs"              "%INSTALL_DIR%\MenuAddon.cs" >nul
+copy /Y "%SRC%\MenuAddon.exe"             "%INSTALL_DIR%\MenuAddon.exe" >nul
+copy /Y "%SRC%\GoalTracker.ps1"           "%INSTALL_DIR%\GoalTracker.ps1" >nul
+copy /Y "%SRC%\GoalTracker.vbs"           "%INSTALL_DIR%\GoalTracker.vbs" >nul
 
 :: Initialize git in the install dir so future pulls work
 set "PATH=%INSTALL_DIR%\mingit\cmd;%PATH%"
