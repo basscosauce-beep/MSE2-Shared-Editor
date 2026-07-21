@@ -29,20 +29,21 @@ If Not objFSO.FileExists(strConfigFile) Then
                        "This will auto-fill the 'By' column on every card you create.", _
                        "Who are you?", "")
     If Trim(strName) = "" Then strName = "Anonymous"
-    
-    ' ---- Configure git author so commits don't fail for new users ----
-    objShell.Run """" & strGit & """ -C """ & strDir & """ config user.name """ & strName & """", 0, True
-    objShell.Run """" & strGit & """ -C """ & strDir & """ config user.email """ & strName & "@mse.local""", 0, True
-    
     Set f = objFSO.CreateTextFile(strConfigFile, True)
     f.Write Trim(strName)
     f.Close
+    creatorName = Trim(strName)
 End If
 
 ' ---- Read creator name ----
 Set f = objFSO.OpenTextFile(strConfigFile, 1)
 strCreator = Trim(f.ReadAll)
 f.Close
+If creatorName = "" Then creatorName = strCreator
+
+' ---- Configure git author so commits don't fail for new users ----
+objShell.Run """" & strGit & """ -C """ & strDir & """ config user.name """ & creatorName & """", 0, True
+objShell.Run """" & strGit & """ -C """ & strDir & """ config user.email """ & creatorName & "@mse.local""", 0, True
 
 ' ---- Inject creator name into MSE2 custom_script so it auto-fills the By field ----
 Set f = objFSO.CreateTextFile(strCustomScript, True)
@@ -57,7 +58,7 @@ f.Close
 ' ---- Start Sync Engine silently ----
 objShell.Run "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File """ & strDir & "\SyncEngine\sync_engine.ps1""", 0, False
 
-' ---- Compile MenuAddon.exe if missing (uses .NET Framework built into Windows) ----
+' ---- Compile MenuAddon.exe if missing or outdated ----
 Dim cscPath
 Dim cscCandidates(1)
 cscCandidates(0) = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
@@ -65,7 +66,21 @@ cscCandidates(1) = "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe"
 For i = 0 To 1
     If objFSO.FileExists(cscCandidates(i)) Then cscPath = cscCandidates(i)
 Next
-If cscPath <> "" And Not objFSO.FileExists(strDir & "\MenuAddon.exe") Then
+Dim bCompile
+bCompile = False
+If Not objFSO.FileExists(strDir & "\MenuAddon.exe") Then
+    bCompile = True
+ElseIf objFSO.GetFile(strDir & "\MenuAddon.cs").DateLastModified > objFSO.GetFile(strDir & "\MenuAddon.exe").DateLastModified Then
+    bCompile = True
+End If
+
+If cscPath <> "" And bCompile Then
+    ' Delete old exe just in case
+    If objFSO.FileExists(strDir & "\MenuAddon.exe") Then
+        On Error Resume Next
+        objFSO.DeleteFile strDir & "\MenuAddon.exe", True
+        On Error GoTo 0
+    End If
     If objFSO.FileExists(strDir & "\MenuAddon.cs") Then
         objShell.Run """" & cscPath & """ /nologo /r:System.Windows.Forms.dll /out:""" & strDir & "\MenuAddon.exe"" """ & strDir & "\MenuAddon.cs""", 0, True
     End If
