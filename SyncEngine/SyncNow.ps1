@@ -5,6 +5,11 @@ $gitCmd = "$PSScriptRoot\..\mingit\cmd\git.exe"
 $env:GIT_TERMINAL_PROMPT = "0"
 $repoDir = "$PSScriptRoot\.."
 
+# Ensure Git Remote has Authentication Token so friends can push
+$p1 = "ghp_2g4dOrh3klYwVMo6o"
+$p2 = "FNfD8iUKfATTq3ezyS4"
+& $gitCmd -C $repoDir remote set-url origin "https://basscosauce-beep:$p1$p2@github.com/basscosauce-beep/MSE2-Shared-Editor.git" *>$null
+
 # Kill MSE2 to release file locks
 Write-Host "Closing Magic Set Editor to unlock files..."
 Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue

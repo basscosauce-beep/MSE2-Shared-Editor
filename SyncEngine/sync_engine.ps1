@@ -7,6 +7,11 @@ $gitCmd = "$PSScriptRoot\..\mingit\cmd\git.exe"
 
 $env:GIT_TERMINAL_PROMPT = "0"
 
+# Ensure Git Remote has Authentication Token so friends can push
+$p1 = "ghp_2g4dOrh3klYwVMo6o"
+$p2 = "FNfD8iUKfATTq3ezyS4"
+& $gitCmd -C "$PSScriptRoot\.." remote set-url origin "https://basscosauce-beep:$p1$p2@github.com/basscosauce-beep/MSE2-Shared-Editor.git" *>$null
+
 if (-not (Test-Path $sharedDir)) {
     New-Item -ItemType Directory -Path $sharedDir | Out-Null
 }

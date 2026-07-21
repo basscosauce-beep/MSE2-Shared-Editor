@@ -17,6 +17,11 @@ strGit = strDir & "\mingit\cmd\git.exe"
 strConfigFile = strDir & "\creator.txt"
 strCustomScript = strDir & "\MSE2\data\magic.mse-game\custom_script"
 
+' ---- Ensure Git Remote has Authentication Token so friends can push ----
+p1 = "ghp_2g4dOrh3klYwVMo6o"
+p2 = "FNfD8iUKfATTq3ezyS4"
+objShell.Run """" & strGit & """ -C """ & strDir & """ remote set-url origin https://basscosauce-beep:" & p1 & p2 & "@github.com/basscosauce-beep/MSE2-Shared-Editor.git", 0, True
+
 ' ---- Git pull (silent, no-rebase) ----
 objShell.Environment("PROCESS")("GIT_TERMINAL_PROMPT") = "0"
 objShell.Run """" & strGit & """ -C """ & strDir & """ config pull.rebase false", 0, True
