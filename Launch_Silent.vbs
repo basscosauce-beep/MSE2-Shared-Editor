@@ -1,9 +1,17 @@
-' MSE2 Shared Cloud - Silent Launcher
+﻿' MSE2 Shared Cloud - Silent Launcher
 ' Does git pull, name prompt, injects creator name, and launches MSE2 invisibly.
 
 Set objShell = CreateObject("WScript.Shell")
 Set objFSO = CreateObject("Scripting.FileSystemObject")
 
+' ---- Kill any existing instances to ensure a clean start ----
+On Error Resume Next
+Set objWMIService = GetObject("winmgmts:\\.\root\cimv2")
+Set colProcess = objWMIService.ExecQuery("Select * from Win32_Process Where Name = 'magicseteditor.exe' Or Name = 'MenuAddon.exe'")
+For Each objProcess in colProcess
+    objProcess.Terminate()
+Next
+On Error GoTo 0
 strDir = objFSO.GetParentFolderName(WScript.ScriptFullName)
 strGit = strDir & "\mingit\cmd\git.exe"
 strConfigFile = strDir & "\creator.txt"
@@ -65,3 +73,4 @@ End If
 
 ' ---- Launch MSE2 ----
 objShell.Run """" & strDir & "\MSE2\magicseteditor.exe""", 1, False
+
