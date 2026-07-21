@@ -20,7 +20,7 @@ class MSEMenuAddon {
 
     [DllImport("user32.dll")] static extern IntPtr GetMenu(IntPtr hWnd);
     [DllImport("user32.dll")] static extern int    GetMenuItemCount(IntPtr hMenu);
-    [DllImport("user32.dll")] static extern bool   AppendMenu(IntPtr hMenu, uint uFlags, uint uID, string text);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern bool   AppendMenu(IntPtr hMenu, uint uFlags, uint uID, string text);
     [DllImport("user32.dll")] static extern bool   DrawMenuBar(IntPtr hWnd);
     [DllImport("user32.dll")] static extern uint   GetMenuItemID(IntPtr hMenu, int nPos);
     [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint evMin, uint evMax, IntPtr hMod,
