@@ -1,4 +1,8 @@
-﻿$sharedDir = "$PSScriptRoot\..\Shared-Set"
+﻿# Ensure only one instance runs
+$currentProc = $PID
+Get-WmiObject Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -match "sync_engine.ps1" -and $_.ProcessId -ne $currentProc } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+$sharedDir = "$PSScriptRoot\..\Shared-Set"
 $gitCmd = "$PSScriptRoot\..\mingit\cmd\git.exe"
 
 $env:GIT_TERMINAL_PROMPT = "0"
@@ -69,3 +73,4 @@ while ($true) {
         & $gitCmd -C "$PSScriptRoot\.." pull origin main *>$null
     }
 }
+
