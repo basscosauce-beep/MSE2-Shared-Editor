@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 setlocal
 echo ==================================================
 echo   MTG Card Editor - Install / Update
@@ -13,11 +13,17 @@ set "TEMP_DIR=%TEMP%\mse2_update_%RANDOM%"
 
 :: ---- If already installed, just update the app files and launch ----
 if exist "%INSTALL_DIR%\MSE2\magicseteditor.exe" (
-    echo Checking GitHub for updates...
+    echo Forcing synchronization with cloud...
     set "PATH=%INSTALL_DIR%\mingit\cmd;%PATH%"
     set "GIT_TERMINAL_PROMPT=0"
     cd /d "%INSTALL_DIR%"
-    git pull origin main >nul 2>&1
+    
+    :: Kill MSE if it's open so we can overwrite files safely
+    taskkill /F /IM magicseteditor.exe >nul 2>&1
+    
+    git fetch origin >nul 2>&1
+    git reset --hard origin/main >nul 2>&1
+    git clean -fd >nul 2>&1
     echo Done! Launching...
     goto :launch
 )
@@ -86,3 +92,4 @@ echo.
 :: Launch silently via the VBS wrapper (no console window)
 start "" wscript.exe "%INSTALL_DIR%\Launch_Silent.vbs"
 exit
+
