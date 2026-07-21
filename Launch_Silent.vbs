@@ -1,4 +1,4 @@
-﻿' MSE2 Shared Cloud - Silent Launcher
+' MSE2 Shared Cloud - Silent Launcher
 ' Does git pull, name prompt, injects creator name, and launches MSE2 invisibly.
 
 Set objShell = CreateObject("WScript.Shell")
@@ -74,3 +74,5 @@ End If
 ' ---- Launch MSE2 ----
 objShell.Run """" & strDir & "\MSE2\magicseteditor.exe""", 1, False
 
+
+' EOF
