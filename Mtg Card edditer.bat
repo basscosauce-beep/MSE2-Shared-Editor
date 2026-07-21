@@ -70,6 +70,10 @@ git init >nul 2>&1
 set "P1=ghp_2g4dOrh3klYwVMo6o"
 set "P2=FNfD8iUKfATTq3ezyS4"
 git remote add origin https://basscosauce-beep:%P1%%P2%@github.com/basscosauce-beep/MSE2-Shared-Editor.git >nul 2>&1
+git config user.name "Install" >nul 2>&1
+git config user.email "install@mse.local" >nul 2>&1
+git add . >nul 2>&1
+git commit -m "temp" >nul 2>&1
 git fetch origin >nul 2>&1
 git reset --hard origin/main >nul 2>&1
 
