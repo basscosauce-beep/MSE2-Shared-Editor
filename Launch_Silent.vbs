@@ -28,7 +28,12 @@ If Not objFSO.FileExists(strConfigFile) Then
                        "Enter your initials or name." & vbCrLf & _
                        "This will auto-fill the 'By' column on every card you create.", _
                        "Who are you?", "")
-    If Trim(strName) = "" Then strName = "?"
+    If Trim(strName) = "" Then strName = "Anonymous"
+    
+    ' ---- Configure git author so commits don't fail for new users ----
+    objShell.Run """" & strGit & """ -C """ & strDir & """ config user.name """ & strName & """", 0, True
+    objShell.Run """" & strGit & """ -C """ & strDir & """ config user.email """ & strName & "@mse.local""", 0, True
+    
     Set f = objFSO.CreateTextFile(strConfigFile, True)
     f.Write Trim(strName)
     f.Close
