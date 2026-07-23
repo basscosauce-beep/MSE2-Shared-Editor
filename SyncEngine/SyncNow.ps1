@@ -3,7 +3,11 @@ Write-Host "🔄 Forcing immediate synchronization with cloud..." -ForegroundCol
 
 $gitCmd = "$PSScriptRoot\..\mingit\cmd\git.exe"
 $env:GIT_TERMINAL_PROMPT = "0"
+$env:GIT_ASKPASS = "echo"
 $repoDir = "$PSScriptRoot\.."
+
+# Disable Windows Credential Manager so it can't override our embedded token
+& $gitCmd -C $repoDir config credential.helper "" *>$null
 
 # Ensure Git Remote has Authentication Token so friends can push
 $p1 = "ghp_2g4dOrh3klYwVMo6o"
