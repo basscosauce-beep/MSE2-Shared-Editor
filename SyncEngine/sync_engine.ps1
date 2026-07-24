@@ -8,18 +8,26 @@ $gitCmd = "$PSScriptRoot\..\mingit\cmd\git.exe"
 $env:GIT_TERMINAL_PROMPT = "0"
 $env:GIT_ASKPASS = "echo"
 
-# Disable Windows Credential Manager so it can't override our embedded token
-& $gitCmd -C "$PSScriptRoot\.." config credential.helper "" *>$null
-
-# Ensure Git Remote has Authentication Token so friends can push
+# Build credential bypass - passes inline config to override global credential.helper
+# This prevents Windows Credential Manager from swapping our embedded token
 $p1 = "ghp_2g4dOrh3klYwVMo6o"
 $p2 = "FNfD8iUKfATTq3ezyS4"
-& $gitCmd -C "$PSScriptRoot\.." remote set-url origin "https://basscosauce-beep:$p1$p2@github.com/basscosauce-beep/MSE2-Shared-Editor.git" *>$null
+$remoteUrl = "https://basscosauce-beep:$p1$p2@github.com/basscosauce-beep/MSE2-Shared-Editor.git"
+$credBypass = @("-c", "credential.helper=")
+
+& $gitCmd -C "$PSScriptRoot\.." @credBypass remote set-url origin $remoteUrl *>$null
+
+# Ensure user config is set
+$userName = & $gitCmd -C "$PSScriptRoot\.." config user.name 2>$null
+if (-not $userName) {
+    & $gitCmd -C "$PSScriptRoot\.." config user.name "MSE Shared" *>$null
+    & $gitCmd -C "$PSScriptRoot\.." config user.email "shared@mse.local" *>$null
+}
 
 # Auto-repair: if in detached HEAD or missing main branch, check it out properly
 $branch = (& $gitCmd -C "$PSScriptRoot\.." branch --show-current 2>$null).Trim()
 if ($branch -ne "main") {
-    & $gitCmd -C "$PSScriptRoot\.." fetch origin *>$null
+    & $gitCmd -C "$PSScriptRoot\.." @credBypass fetch origin *>$null
     & $gitCmd -C "$PSScriptRoot\.." checkout -B main origin/main *>$null
     & $gitCmd -C "$PSScriptRoot\.." branch --set-upstream-to=origin/main main *>$null
 }
@@ -45,7 +53,7 @@ function Sync-GitHub {
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[Sync Engine] Uploading to cloud..."
-        & $gitCmd -C "$PSScriptRoot\.." push origin main *>$null
+        & $gitCmd -C "$PSScriptRoot\.." @credBypass push origin main *>$null
         Write-Host "[Sync Engine] Successfully synced!"
     } else {
         Write-Host "[Sync Engine] No new card changes to push."
@@ -87,7 +95,7 @@ Write-Host "[Sync Engine] Background Sync Engine Active! Watching for card saves
 while ($true) {
     Start-Sleep -Seconds 30
     if (-not $script:isSyncing) {
-        & $gitCmd -C "$PSScriptRoot\.." pull origin main --rebase *>$null
+        & $gitCmd -C "$PSScriptRoot\.." @credBypass pull origin main --rebase *>$null
         if ($LASTEXITCODE -ne 0) {
             $repoDir = "$PSScriptRoot\.."
             if ((Test-Path "$repoDir\.git\rebase-merge") -or (Test-Path "$repoDir\.git\rebase-apply")) {
@@ -102,7 +110,7 @@ while ($true) {
                 }
                 
                 # Force a hard reset to accept cloud's version
-                & $gitCmd -C $repoDir fetch origin *>$null
+                & $gitCmd -C $repoDir @credBypass fetch origin *>$null
                 & $gitCmd -C $repoDir reset --hard origin/main *>$null
                 
                 # Alert user
