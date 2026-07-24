@@ -75,7 +75,7 @@ git config user.email "install@mse.local" >nul 2>&1
 git add . >nul 2>&1
 git commit -m "temp" >nul 2>&1
 git fetch origin >nul 2>&1
-git checkout -B main origin/main >nul 2>&1
+git checkout -B main origin/main -f >nul 2>&1
 git branch --set-upstream-to=origin/main main >nul 2>&1
 
 :: Clean up temp files
