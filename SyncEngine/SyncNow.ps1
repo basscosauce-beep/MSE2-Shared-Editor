@@ -6,8 +6,8 @@ $env:GIT_TERMINAL_PROMPT = "0"
 $env:GIT_ASKPASS = "echo"
 $repoDir = (Resolve-Path "$PSScriptRoot\..").Path
 
-# Build credential-bypass args - passes inline config to override global credential.helper
-# This prevents Windows Credential Manager from swapping our embedded token
+# Inline credential bypass on every network command - prevents Windows Credential Manager
+# from swapping our embedded token with the user's own GitHub account
 $p1 = "ghp_2g4dOrh3klYwVMo6o"
 $p2 = "FNfD8iUKfATTq3ezyS4"
 $remoteUrl = "https://basscosauce-beep:$p1$p2@github.com/basscosauce-beep/MSE2-Shared-Editor.git"
@@ -17,7 +17,7 @@ $credBypass = @("-c", "credential.helper=")
 & $gitCmd -C $repoDir @credBypass remote set-url origin $remoteUrl *>$null
 
 # Ensure user config is set (needed to make commits)
-$userName = & $gitCmd -C $repoDir config user.name 2>$null
+$userName = (& $gitCmd -C $repoDir config user.name 2>$null).Trim()
 if (-not $userName) {
     & $gitCmd -C $repoDir config user.name "MSE Shared" *>$null
     & $gitCmd -C $repoDir config user.email "shared@mse.local" *>$null
@@ -37,40 +37,46 @@ Write-Host "Closing Magic Set Editor to unlock files..."
 Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
-# Auto-commit any local card changes
+# STEP 1: Stash any local card changes so we can pull cleanly
+Write-Host "Saving your local cards..." -ForegroundColor Yellow
 & $gitCmd -C $repoDir add "Shared-Set/" *>$null
-& $gitCmd -C $repoDir commit -m "Auto-sync card updates" *>$null
+$hasChanges = (& $gitCmd -C $repoDir status --porcelain 2>$null).Trim()
+$stashed = $false
+if ($hasChanges) {
+    & $gitCmd -C $repoDir stash push -m "mse-sync-stash" *>$null
+    $stashed = $true
+}
 
-# Pull with rebase
+# STEP 2: Pull latest from cloud FIRST so we're never behind
 Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
-& $gitCmd -C $repoDir @credBypass pull origin main --rebase
-
+& $gitCmd -C $repoDir @credBypass pull origin main --ff-only *>$null
 if ($LASTEXITCODE -ne 0) {
-    if ((Test-Path "$repoDir\.git\rebase-merge") -or (Test-Path "$repoDir\.git\rebase-apply")) {
-        Write-Host "CLOUD COLLISION DETECTED! Resolving automatically..." -ForegroundColor Red
+    # ff-only failed, try a hard reset to cloud state
+    & $gitCmd -C $repoDir @credBypass fetch origin *>$null
+    & $gitCmd -C $repoDir reset --hard origin/main *>$null
+}
 
-        & $gitCmd -C $repoDir rebase --abort *>$null
-
-        # Safely backup all sets to the Desktop
+# STEP 3: Re-apply local card changes on top
+if ($stashed) {
+    & $gitCmd -C $repoDir stash pop *>$null
+    if ($LASTEXITCODE -ne 0) {
+        # Conflict - backup to desktop and accept cloud version
         $desktopPath = [Environment]::GetFolderPath("Desktop")
         Get-ChildItem -Path "$repoDir\Shared-Set" -Filter "*.mse-set" -Recurse | ForEach-Object {
-            $backupName = $_.BaseName + "_Collision_Backup" + $_.Extension
-            Copy-Item -Path $_.FullName -Destination "$desktopPath\$backupName" -Force
+            Copy-Item -Path $_.FullName -Destination "$desktopPath\$($_.BaseName)_Collision_Backup$($_.Extension)" -Force
         }
-
-        # Force a hard reset to accept the cloud's version
-        & $gitCmd -C $repoDir @credBypass fetch origin *>$null
-        & $gitCmd -C $repoDir reset --hard origin/main *>$null
-
+        & $gitCmd -C $repoDir checkout -- "Shared-Set/" *>$null
+        & $gitCmd -C $repoDir stash drop *>$null
         Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.MessageBox]::Show("A cloud collision was detected (someone else uploaded cards at the exact same time as you).`n`nYour local cards have been safely backed up to your Desktop as '_Collision_Backup.mse-set'.`n`nYour game has been automatically synced with their cards. You can now open your backup file in Magic Set Editor and copy/paste your cards into the main set!", "Collision Auto-Resolved", 'OK', 'Information')
-    } else {
-        Write-Host "Warning: Failed to download updates. Make sure you are connected to the internet." -ForegroundColor Red
+        [System.Windows.Forms.MessageBox]::Show("A cloud collision was detected!`n`nYour cards were backed up to your Desktop as '_Collision_Backup.mse-set'.`n`nYour game has been synced with the cloud. Copy/paste your cards from the backup file!", "Collision Resolved", 'OK', 'Information')
     }
 }
 
-# Push
+# STEP 4: Commit and push our cards
 Write-Host "Uploading your cards to the cloud..." -ForegroundColor Yellow
+& $gitCmd -C $repoDir add "Shared-Set/" *>$null
+& $gitCmd -C $repoDir commit -m "Auto-sync card updates" *>$null
+
 & $gitCmd -C $repoDir @credBypass push origin main
 
 if ($LASTEXITCODE -eq 0) {
@@ -81,5 +87,4 @@ if ($LASTEXITCODE -eq 0) {
 
 Write-Host "`nRelaunching Magic Set Editor..."
 Start-Process "wscript.exe" -ArgumentList "`"$repoDir\Launch_Silent.vbs`""
-
 Start-Sleep -Seconds 2
