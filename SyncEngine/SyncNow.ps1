@@ -21,16 +21,14 @@ if (-not $userName) {
     & $gitCmd -C $repoDir config user.email "shared@mse.local" *>$null
 }
 
-# ---- CRITICAL: Check if repo has any commits at all ----
+# CRITICAL: Check if repo has any commits at all (first-time setup)
 $hasCommits = (& $gitCmd -C $repoDir log --oneline -1 2>$null).Trim()
 if (-not $hasCommits) {
     Write-Host "First-time setup detected - downloading game files..." -ForegroundColor Yellow
-    Write-Host "(This may take a moment)" -ForegroundColor Yellow
     & $gitCmd -C $repoDir @credBypass fetch origin *>$null
-    # Force checkout overwrites all local untracked files with cloud versions
     & $gitCmd -C $repoDir checkout -B main origin/main -f *>$null
     & $gitCmd -C $repoDir branch --set-upstream-to=origin/main main *>$null
-    Write-Host "Setup complete! Now syncing your cards..." -ForegroundColor Green
+    Write-Host "Setup complete!" -ForegroundColor Green
 }
 
 # Auto-repair: if on wrong branch, switch to main
@@ -45,19 +43,17 @@ if ($branch -ne "main") {
 # Kill MSE2 to release file locks
 Write-Host "Closing Magic Set Editor to unlock files..."
 Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
+Start-Sleep -Seconds 2
 
-# Stash local card changes so we can pull cleanly
-& $gitCmd -C $repoDir add "Shared-Set/" *>$null
-$hasChanges = (& $gitCmd -C $repoDir diff --cached --name-only "Shared-Set/" 2>$null).Trim()
-$stashed = $false
-if ($hasChanges) {
-    Write-Host "Saving your local cards..." -ForegroundColor Yellow
-    & $gitCmd -C $repoDir stash push -m "mse-sync-stash" *>$null
-    $stashed = ($LASTEXITCODE -eq 0)
+# STEP 1: Back up the local set file BEFORE pulling
+# (We can't use git stash on binary files - it causes merge conflicts on pop)
+$setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
+$localBackupPath = "$env:TEMP\mse_local_backup_$([System.IO.Path]::GetRandomFileName()).mse-set"
+if ($setFile) {
+    Copy-Item $setFile.FullName $localBackupPath -Force
 }
 
-# Pull latest from cloud FIRST
+# STEP 2: Pull latest from cloud (overwrites local set file with cloud version)
 Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
 & $gitCmd -C $repoDir @credBypass pull origin main --ff-only *>$null
 if ($LASTEXITCODE -ne 0) {
@@ -65,27 +61,17 @@ if ($LASTEXITCODE -ne 0) {
     & $gitCmd -C $repoDir reset --hard origin/main *>$null
 }
 
-# Re-apply local card changes on top
-if ($stashed) {
-    Write-Host "Restoring your local cards..." -ForegroundColor Yellow
-    & $gitCmd -C $repoDir stash pop *>$null
-    if ($LASTEXITCODE -ne 0) {
-        $desktopPath = [Environment]::GetFolderPath("Desktop")
-        Get-ChildItem -Path "$repoDir\Shared-Set" -Filter "*.mse-set" -Recurse | ForEach-Object {
-            Copy-Item -Path $_.FullName -Destination "$desktopPath\$($_.BaseName)_Collision_Backup$($_.Extension)" -Force
-        }
-        & $gitCmd -C $repoDir checkout -- "Shared-Set/" *>$null
-        & $gitCmd -C $repoDir stash drop *>$null
-        Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.MessageBox]::Show("Collision detected! Your cards were backed up to Desktop.", "Collision Resolved", 'OK', 'Warning')
-    }
+# STEP 3: Merge any new local cards back in (cards not yet on cloud)
+if ($localBackupPath -and (Test-Path $localBackupPath) -and $setFile) {
+    $cloudSetFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
+    . "$PSScriptRoot\MergeSetFile.ps1" -LocalBackup $localBackupPath -CloudFile $cloudSetFile.FullName
+    Remove-Item $localBackupPath -Force -ErrorAction SilentlyContinue
 }
 
-# Auto-fill the "By" column for any cards missing a creator
-# (runs AFTER stash pop so it's not overwritten)
+# STEP 4: Auto-fill the "By" column for any cards missing a creator
 . "$PSScriptRoot\FillCreators.ps1" -RepoDir $repoDir -GitCmd $gitCmd -CredBypass $credBypass
 
-# Commit and push
+# STEP 5: Commit and push everything (new cards + creator fields)
 Write-Host "Uploading your cards to the cloud..." -ForegroundColor Yellow
 & $gitCmd -C $repoDir add "Shared-Set/" *>$null
 & $gitCmd -C $repoDir commit -m "Auto-sync card updates" *>$null
@@ -95,7 +81,7 @@ Write-Host "Uploading your cards to the cloud..." -ForegroundColor Yellow
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Sync Complete! Your friends will now see your cards." -ForegroundColor Green
 } else {
-    Write-Host "Warning: Failed to upload your cards. Please try again later." -ForegroundColor Red
+    Write-Host "Warning: Failed to upload. Please try again." -ForegroundColor Red
 }
 
 Write-Host "`nRelaunching Magic Set Editor..."
