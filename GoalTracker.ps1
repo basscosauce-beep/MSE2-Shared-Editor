@@ -32,6 +32,9 @@ try {
     $goals = @{}
     $actuals = @{}
     $locks = @{}
+    foreach ($mc in @("White", "Blue", "Black", "Red", "Green")) {
+        $actuals["MulticolorDist_$mc"] = 0
+    }
     foreach ($c in $colors) {
         foreach ($cat in $allCats) {
             $goals["${c}_${cat}"] = 0
@@ -86,7 +89,14 @@ try {
         
         $cardColor = ""
         if ($cList.Count -eq 0) { $cardColor = "Colorless" }
-        elseif ($cList.Count -gt 1) { $cardColor = "Multicolor" }
+        elseif ($cList.Count -gt 1) { 
+            $cardColor = "Multicolor"
+            if ($cList -contains "W") { $actuals["MulticolorDist_White"]++ }
+            if ($cList -contains "U") { $actuals["MulticolorDist_Blue"]++ }
+            if ($cList -contains "B") { $actuals["MulticolorDist_Black"]++ }
+            if ($cList -contains "R") { $actuals["MulticolorDist_Red"]++ }
+            if ($cList -contains "G") { $actuals["MulticolorDist_Green"]++ }
+        }
         else {
             if ($cList[0] -eq "W") { $cardColor = "White" }
             if ($cList[0] -eq "U") { $cardColor = "Blue" }
@@ -415,6 +425,31 @@ try {
 
         AddSection $panel "RARITY"
         foreach ($r in $rarities) { AddRow $panel $c $r }
+
+        if ($c -eq "Multicolor") {
+            AddSection $panel "COLOR DISTRIBUTION"
+            foreach ($mc in @("White", "Blue", "Black", "Red", "Green")) {
+                $grid = New-Object System.Windows.Controls.Grid
+                $grid.Margin = "0,2,0,2"
+                $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(120)}))
+                $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(150)}))
+                
+                $lbl = New-Object System.Windows.Controls.TextBlock
+                $lbl.Text = $mc
+                $lbl.VerticalAlignment = "Center"
+                [System.Windows.Controls.Grid]::SetColumn($lbl, 0)
+                $grid.Children.Add($lbl)
+                
+                $txt = New-Object System.Windows.Controls.TextBlock
+                $txt.Text = "$($actuals["MulticolorDist_$mc"]) cards"
+                $txt.VerticalAlignment = "Center"
+                $txt.Foreground = "#AAA"
+                [System.Windows.Controls.Grid]::SetColumn($txt, 1)
+                $grid.Children.Add($txt)
+                
+                $panel.Children.Add($grid)
+            }
+        }
     }
 
     $window.FindName("BtnSave").add_Click({
@@ -442,9 +477,9 @@ try {
             }
         }
 
-        # 3. Apply Baseline Types to WUBRG (if not locked)
+        # 3. Apply Baseline Types to all colors (if not locked)
         foreach ($t in $types) {
-            foreach ($c in @("White", "Blue", "Black", "Red", "Green")) {
+            foreach ($c in @("White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")) {
                 if (-not $locks["${c}_${t}"]) {
                     $goals["${c}_${t}"] = $baseline[$t]
                 }
