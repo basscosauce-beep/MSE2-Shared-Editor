@@ -1,4 +1,4 @@
-﻿Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.Web.Extensions
@@ -25,7 +25,7 @@ try {
     # Data Model
     $colors = @("Total Set", "Baseline", "White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")
     $types = @("Creatures", "Enchantments", "Instants/Sorceries", "Artifacts", "Lands")
-    $mvs = @("MV 0", "MV 1", "MV 2", "MV 3", "MV 4", "MV 5+")
+    $mvs = @("MV 0", "MV 1", "MV 2", "MV 3", "MV 4", "MV 5", "MV 6", "MV 7+")
     $rarities = @("Common", "Uncommon", "Rare", "Mythic Rare")
     $allCats = $types + $mvs + $rarities
 
@@ -111,7 +111,7 @@ try {
         $mv += ($ccTemp.Length)
         
         $cardMv = ""
-        if ($mv -ge 5) { $cardMv = "MV 5+" }
+        if ($mv -ge 7) { $cardMv = "MV 7+" }
         else { $cardMv = "MV $mv" }
 
         $cardRarity = ""
@@ -146,7 +146,7 @@ try {
     $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Set Goal Tracker - $($setName)" Height="820" Width="550" Background="#1E1E1E" Foreground="White"
+        Title="Set Goal Tracker - $($setName)" Height="880" Width="550" Background="#1E1E1E" Foreground="White"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
     <Window.Resources>
         <Style TargetType="TextBlock">
