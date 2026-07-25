@@ -24,8 +24,8 @@ if exist "%INSTALL_DIR%\MSE2\magicseteditor.exe" (
     git fetch origin >nul 2>&1
     git reset --hard origin/main >nul 2>&1
     git clean -fd >nul 2>&1
-    echo Done! Launching...
-    goto :launch
+    echo Done!
+    goto :shortcut
 )
 
 :: ---- First time install: download full package from GitHub ----
@@ -82,18 +82,21 @@ git branch --set-upstream-to=origin/main main >nul 2>&1
 rmdir /s /q "%TEMP_DIR%" >nul 2>&1
 del /f /q "%TEMP_ZIP%" >nul 2>&1
 
-:: Create Desktop shortcut
-echo Creating Desktop Shortcut...
-powershell -Command "$WshShell = New-Object -comObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%SHORTCUT_PATH%'); $Shortcut.TargetPath = '%INSTALL_DIR%\Launch_Silent.vbs'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.IconLocation = '%INSTALL_DIR%\MSE2\magicseteditor.exe'; $Shortcut.Description = 'Launch Magic Set Editor 2 - Shared Cloud Edition'; $Shortcut.Save()"
-powershell -Command "$WshShell = New-Object -comObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%USERPROFILE%\Desktop\MTG Card Editor - Settings.lnk'); $Shortcut.TargetPath = '%INSTALL_DIR%\Settings.vbs'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.IconLocation = '%INSTALL_DIR%\MSE2\magicseteditor.exe, 0'; $Shortcut.Description = 'Change your name and initials for MTG Card Editor'; $Shortcut.Save()"
-
 echo.
 echo ==================================================
 echo   INSTALLATION COMPLETE!
 echo ==================================================
-echo A shortcut has been placed on your Desktop.
-echo From now on, use that shortcut to launch the editor.
 echo.
+
+:shortcut
+:: Always create exactly ONE desktop icon - delete any old variants first
+del /f /q "%USERPROFILE%\Desktop\Magic Set Editor (Shared).lnk" >nul 2>&1
+del /f /q "%USERPROFILE%\Desktop\MTG Card Editor - Settings.lnk" >nul 2>&1
+del /f /q "%USERPROFILE%\Desktop\Magic Set Editor.lnk" >nul 2>&1
+del /f /q "%USERPROFILE%\Desktop\MTG Card Editor.lnk" >nul 2>&1
+powershell -Command "$WshShell = New-Object -comObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%SHORTCUT_PATH%'); $Shortcut.TargetPath = '%INSTALL_DIR%\Launch_Silent.vbs'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.IconLocation = '%INSTALL_DIR%\MSE2\magicseteditor.exe'; $Shortcut.Description = 'Launch Magic Set Editor 2 - Shared Cloud Edition'; $Shortcut.Save()"
+echo Desktop shortcut created.
+
 
 :launch
 :: Launch silently via the VBS wrapper (no console window)
