@@ -37,13 +37,13 @@ if (-not $hasEmpty) { return }  # All cards already have creators
 
 Write-Host "[By Column] Found $($hasEmpty.Count) cards without creator. Resolving from git history..." -ForegroundColor Yellow
 
-# --- Get git log: commit timestamps + author names ---
+# --- Get git log: commit timestamps + author names (use local user.name, not GitHub username) ---
 $relPath = $setFile.FullName.Replace("$RepoDir\", "").Replace("\", "/")
-$rawLog = (& $gitCmd -C $RepoDir log --format="%ai|%an" -- "$relPath" 2>$null) | Where-Object { $_ -ne "" }
+# %an = author name as configured in git config user.name at commit time
+$rawLog = (& $GitCmd -C $RepoDir log --format="%ai|%an" -- "$relPath" 2>$null) | Where-Object { $_ -ne "" }
 
 if (-not $rawLog) {
-    # Fallback: use all commits
-    $rawLog = (& $gitCmd -C $RepoDir log --format="%ai|%an" 2>$null) | Where-Object { $_ -ne "" }
+    $rawLog = (& $GitCmd -C $RepoDir log --format="%ai|%an" 2>$null) | Where-Object { $_ -ne "" }
 }
 if (-not $rawLog) { return }
 
@@ -55,6 +55,11 @@ $commits = $rawLog | ForEach-Object {
 
 if (-not $commits) { return }
 
+# Filter out bot/installer names
+$realCommits = $commits | Where-Object { $_.Author -notmatch "^(Install|MSE Shared|Anonymous|basscosauce-beep)$" }
+if (-not $realCommits) { $realCommits = $commits }
+
+
 # --- For each card block, assign a creator based on nearest commit time ---
 $anyUpdated = $false
 $newBlocks = foreach ($block in $cardBlocks) {
@@ -63,17 +68,12 @@ $newBlocks = foreach ($block in $cardBlocks) {
             try {
                 $cardTime = [DateTime]::Parse($matches[1])
 
-                # Find the commit with the closest timestamp to when the card was created
-                $bestAuthor = $commits[-1].Author  # default to most recent committer
+                # Find the commit with the smallest time difference (using real names only)
+                $bestAuthor = $realCommits[-1].Author
                 $bestDiff   = [double]::MaxValue
-                foreach ($c in $commits) {
+                foreach ($c in $realCommits) {
                     $diff = [Math]::Abs(($c.Date.ToUniversalTime() - $cardTime.ToUniversalTime()).TotalMinutes)
                     if ($diff -lt $bestDiff) { $bestDiff = $diff; $bestAuthor = $c.Author }
-                }
-
-                # Skip obviously wrong entries (git bot names from installer)
-                if ($bestAuthor -match "^(Install|MSE Shared|Anonymous)$") {
-                    $bestAuthor = ($commits | Where-Object { $_.Author -notmatch "^(Install|MSE Shared|Anonymous)$" } | Select-Object -Last 1).Author
                 }
 
                 if ($bestAuthor) {

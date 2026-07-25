@@ -65,9 +65,6 @@ if ($LASTEXITCODE -ne 0) {
     & $gitCmd -C $repoDir reset --hard origin/main *>$null
 }
 
-# Auto-fill the "By" column for any cards missing a creator
-. "$PSScriptRoot\FillCreators.ps1" -RepoDir $repoDir -GitCmd $gitCmd -CredBypass $credBypass
-
 # Re-apply local card changes on top
 if ($stashed) {
     Write-Host "Restoring your local cards..." -ForegroundColor Yellow
@@ -83,6 +80,10 @@ if ($stashed) {
         [System.Windows.Forms.MessageBox]::Show("Collision detected! Your cards were backed up to Desktop.", "Collision Resolved", 'OK', 'Warning')
     }
 }
+
+# Auto-fill the "By" column for any cards missing a creator
+# (runs AFTER stash pop so it's not overwritten)
+. "$PSScriptRoot\FillCreators.ps1" -RepoDir $repoDir -GitCmd $gitCmd -CredBypass $credBypass
 
 # Commit and push
 Write-Host "Uploading your cards to the cloud..." -ForegroundColor Yellow
