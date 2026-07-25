@@ -65,6 +65,9 @@ if ($LASTEXITCODE -ne 0) {
     & $gitCmd -C $repoDir reset --hard origin/main *>$null
 }
 
+# Auto-fill the "By" column for any cards missing a creator
+. "$PSScriptRoot\FillCreators.ps1" -RepoDir $repoDir -GitCmd $gitCmd -CredBypass $credBypass
+
 # Re-apply local card changes on top
 if ($stashed) {
     Write-Host "Restoring your local cards..." -ForegroundColor Yellow
