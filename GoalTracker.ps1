@@ -304,9 +304,9 @@ try {
         [System.Windows.Controls.Grid]::SetColumn($lbl, 0)
         $grid.Children.Add($lbl)
         
-        $act = $actuals[$key]
-        $gol = $goals[$key]
-        if ($gol -eq 0) { $pct = 0 } else { $pct = $act / $gol }
+        $act = [double]$actuals[$key]
+        $gol = [double]$goals[$key]
+        if (-not $gol -or $gol -eq 0) { $pct = 0 } else { $pct = $act / $gol }
         
         if ($color -ne "Baseline") {
             $pbBg = New-Object System.Windows.Shapes.Rectangle
