@@ -1,11 +1,9 @@
-# MergeSetFile.ps1
-# Merges new locally-created cards back into the cloud-pulled set file.
-# Since .mse-set files are binary zips, git can't merge them automatically.
-# This script reads both versions and preserves any cards that only exist locally.
+# MergeSetFile.ps1 - Merges new locally-created cards into the cloud-pulled set file.
+# Uses a temp-file swap instead of in-place zip editing to avoid file lock issues.
 
 param(
-    [string]$LocalBackup,   # Path to the local backup (saved before pull)
-    [string]$CloudFile      # Path to the current cloud set file (after pull)
+    [string]$LocalBackup,
+    [string]$CloudFile
 )
 
 if (-not (Test-Path $LocalBackup) -or -not (Test-Path $CloudFile)) { return }
@@ -29,36 +27,62 @@ $localContent = Read-SetContent $LocalBackup
 $cloudContent = Read-SetContent $CloudFile
 if (-not $localContent -or -not $cloudContent) { return }
 
-# Build a set of time_created values that already exist in the cloud version
+# Build a set of time_created values from the cloud version
 $cloudTimes = [System.Collections.Generic.HashSet[string]]::new()
 $cloudContent -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
     if ($_ -match "time_created: ([^\r\n]+)") { $cloudTimes.Add($matches[1].Trim()) | Out-Null }
 }
 
-# Find cards in the local backup that are NOT in the cloud version (brand new cards)
-$newCards = $localContent -split "(?m)^(?=card:)" | Where-Object {
+# Find cards in the local backup that are NOT in the cloud version
+$newCards = @($localContent -split "(?m)^(?=card:)" | Where-Object {
     $_ -match "^card:" -and $_ -match "time_created: ([^\r\n]+)" -and -not $cloudTimes.Contains($matches[1].Trim())
-}
+})
 
-if (-not $newCards -or $newCards.Count -eq 0) { return }
+if ($newCards.Count -eq 0) { return }
 
-Write-Host "[Merge] Preserving $($newCards.Count) new local card(s) that aren't in the cloud yet..." -ForegroundColor Cyan
+Write-Host "[Merge] Preserving $($newCards.Count) new local card(s)..." -ForegroundColor Cyan
 
-# Append new local cards to the end of the cloud set file content
-$mergedContent = $cloudContent.TrimEnd("`r", "`n") + "`n" + ($newCards -join "")
+$mergedContent = $cloudContent.TrimEnd("`r","`n") + "`n" + ($newCards -join "")
 
-# Write the merged content back into the zip
+# --- Temp-file swap to avoid file lock issues ---
+# 1. Write the merged content to a brand-new temp zip
+# 2. Copy all image entries from the cloud zip into it
+# 3. Atomically replace the cloud file
+
+$tempZipPath = [System.IO.Path]::GetTempFileName() + ".mse-set"
+
 try {
-    $zip = [System.IO.Compression.ZipFile]::Open($CloudFile, [System.IO.Compression.ZipArchiveMode]::Update)
-    $entry = $zip.Entries | Where-Object { $_.Name -eq "set" }
-    $entry.Delete()
-    $newEntry = $zip.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
-    $stream   = $newEntry.Open()
-    $writer   = New-Object System.IO.StreamWriter($stream, [System.Text.Encoding]::UTF8)
+    # Open cloud zip to copy images from
+    $srcZip = [System.IO.Compression.ZipFile]::OpenRead($CloudFile)
+
+    # Create new zip at temp path
+    $dstZip = [System.IO.Compression.ZipFile]::Open($tempZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+
+    # Write merged "set" text entry
+    $setEntry = $dstZip.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
+    $setStream = $setEntry.Open()
+    $writer = New-Object System.IO.StreamWriter($setStream, [System.Text.Encoding]::UTF8)
     $writer.Write($mergedContent)
     $writer.Flush(); $writer.Dispose()
-    $zip.Dispose()
+
+    # Copy all image entries from cloud zip
+    foreach ($imgEntry in ($srcZip.Entries | Where-Object { $_.Name -ne "set" })) {
+        $dstEntry = $dstZip.CreateEntry($imgEntry.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $srcStream = $imgEntry.Open()
+        $dstStream = $dstEntry.Open()
+        $srcStream.CopyTo($dstStream)
+        $srcStream.Dispose(); $dstStream.Dispose()
+    }
+
+    $srcZip.Dispose()
+    $dstZip.Dispose()
+
+    # Atomically replace the cloud file with our merged version
+    Copy-Item $tempZipPath $CloudFile -Force
     Write-Host "[Merge] New cards preserved successfully!" -ForegroundColor Green
+
 } catch {
-    Write-Host "[Merge] Could not write merged set file: $_" -ForegroundColor Red
+    Write-Host "[Merge] Failed: $_" -ForegroundColor Red
+} finally {
+    if (Test-Path $tempZipPath) { Remove-Item $tempZipPath -Force -ErrorAction SilentlyContinue }
 }

@@ -92,18 +92,31 @@ if (-not $anyUpdated) { return }
 
 $newContent = $newBlocks -join ""
 
-# --- Write back into the zip in-place ---
+# --- Temp-file swap to avoid file lock issues ---
+$tempZipPath = [System.IO.Path]::GetTempFileName() + ".mse-set"
 try {
-    $zip = [System.IO.Compression.ZipFile]::Open($setFile.FullName, [System.IO.Compression.ZipArchiveMode]::Update)
-    $entry = $zip.Entries | Where-Object { $_.Name -eq "set" }
-    $entry.Delete()
-    $newEntry = $zip.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
-    $stream   = $newEntry.Open()
-    $writer   = New-Object System.IO.StreamWriter($stream, [System.Text.Encoding]::UTF8)
+    $srcZip = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
+    $dstZip = [System.IO.Compression.ZipFile]::Open($tempZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+
+    # Write updated "set" entry
+    $setEntry = $dstZip.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
+    $setStream = $setEntry.Open()
+    $writer = New-Object System.IO.StreamWriter($setStream, [System.Text.Encoding]::UTF8)
     $writer.Write($newContent)
     $writer.Flush(); $writer.Dispose()
-    $zip.Dispose()
+
+    # Copy all image entries unchanged
+    foreach ($imgEntry in ($srcZip.Entries | Where-Object { $_.Name -ne "set" })) {
+        $dstEntry = $dstZip.CreateEntry($imgEntry.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $s = $imgEntry.Open(); $d = $dstEntry.Open()
+        $s.CopyTo($d); $s.Dispose(); $d.Dispose()
+    }
+    $srcZip.Dispose(); $dstZip.Dispose()
+
+    Copy-Item $tempZipPath $setFile.FullName -Force
     Write-Host "[By Column] Creator attribution complete!" -ForegroundColor Green
 } catch {
     Write-Host "[By Column] Could not update set file: $_" -ForegroundColor Red
+} finally {
+    if (Test-Path $tempZipPath) { Remove-Item $tempZipPath -Force -ErrorAction SilentlyContinue }
 }

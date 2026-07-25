@@ -1,5 +1,12 @@
 $Host.UI.RawUI.WindowTitle = "Magic Set Editor - Manual Sync"
-Write-Host "Forcing immediate synchronization with cloud..." -ForegroundColor Cyan
+
+# Kill MSE2 FIRST - before anything else - so file locks are released
+Write-Host "Closing Magic Set Editor..." -ForegroundColor Yellow
+Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "MenuAddon" -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 3   # Wait for OS to fully release file locks
+
+Write-Host "Syncing with cloud..." -ForegroundColor Cyan
 
 $gitCmd = "$PSScriptRoot\..\mingit\cmd\git.exe"
 $env:GIT_TERMINAL_PROMPT = "0"
@@ -37,10 +44,6 @@ if ($branch -ne "main") {
     & $gitCmd -C $repoDir branch --set-upstream-to=origin/main main *>$null
 }
 
-# Kill MSE2 to release file locks
-Write-Host "Closing Magic Set Editor to unlock files..."
-Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
 
 # ---------------------------------------------------------------
 # STEP 1: Back up the local set file BEFORE touching git at all
