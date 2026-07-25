@@ -1,10 +1,24 @@
 $Host.UI.RawUI.WindowTitle = "Magic Set Editor - Manual Sync"
 
-# Kill MSE2 FIRST - before anything else - so file locks are released
+# Auto-save MSE2 BEFORE killing it so unsaved cards are flushed to disk
+$mseProc = Get-Process "magicseteditor" -ErrorAction SilentlyContinue
+if ($mseProc) {
+    Write-Host "Auto-saving your cards..." -ForegroundColor Cyan
+    Add-Type -AssemblyName Microsoft.VisualBasic
+    Add-Type -AssemblyName System.Windows.Forms
+    try {
+        [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id)
+        Start-Sleep -Milliseconds 800
+        [System.Windows.Forms.SendKeys]::SendWait("^s")
+        Start-Sleep -Milliseconds 1500  # Wait for file write to finish
+    } catch {}
+}
+
+# Now kill MSE2 so file locks are released
 Write-Host "Closing Magic Set Editor..." -ForegroundColor Yellow
 Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
 Stop-Process -Name "MenuAddon" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 3   # Wait for OS to fully release file locks
+Start-Sleep -Seconds 2
 
 Write-Host "Syncing with cloud..." -ForegroundColor Cyan
 
