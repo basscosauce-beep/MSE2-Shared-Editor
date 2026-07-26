@@ -52,10 +52,11 @@ $mergedContent = $cloudContent.TrimEnd("`r","`n") + "`n" + ($newCards -join "")
 $tempZipPath = [System.IO.Path]::GetTempFileName() + ".mse-set"
 
 try {
-    # Open cloud zip to copy images from
-    $srcZip = [System.IO.Compression.ZipFile]::OpenRead($CloudFile)
+    # Open both zips so we can pull images from each
+    $cloudZip = [System.IO.Compression.ZipFile]::OpenRead($CloudFile)
+    $localZip = [System.IO.Compression.ZipFile]::OpenRead($LocalBackup)
 
-    # Create new zip at temp path
+    # Create new merged zip at temp path
     $dstZip = [System.IO.Compression.ZipFile]::Open($tempZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
 
     # Write merged "set" text entry
@@ -65,21 +66,37 @@ try {
     $writer.Write($mergedContent)
     $writer.Flush(); $writer.Dispose()
 
-    # Copy all image entries from cloud zip
-    foreach ($imgEntry in ($srcZip.Entries | Where-Object { $_.Name -ne "set" })) {
-        $dstEntry = $dstZip.CreateEntry($imgEntry.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
-        $srcStream = $imgEntry.Open()
-        $dstStream = $dstEntry.Open()
-        $srcStream.CopyTo($dstStream)
-        $srcStream.Dispose(); $dstStream.Dispose()
+    # Build a lookup of all image names we've already written (to avoid duplicates)
+    $written = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+    # Helper to copy one zip entry into dstZip
+    function CopyEntry($srcEntry, $dstZipRef) {
+        $dst = $dstZipRef.CreateEntry($srcEntry.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $s = $srcEntry.Open(); $d = $dst.Open()
+        $s.CopyTo($d); $s.Dispose(); $d.Dispose()
     }
 
-    $srcZip.Dispose()
+    # 1. Copy images from LOCAL backup first (these are the newest - user's own cards)
+    foreach ($entry in ($localZip.Entries | Where-Object { $_.Name -ne "set" })) {
+        CopyEntry $entry $dstZip
+        $written.Add($entry.FullName) | Out-Null
+    }
+
+    # 2. Copy images from CLOUD that aren't already covered by local
+    foreach ($entry in ($cloudZip.Entries | Where-Object { $_.Name -ne "set" })) {
+        if (-not $written.Contains($entry.FullName)) {
+            CopyEntry $entry $dstZip
+            $written.Add($entry.FullName) | Out-Null
+        }
+    }
+
+    $localZip.Dispose()
+    $cloudZip.Dispose()
     $dstZip.Dispose()
 
     # Atomically replace the cloud file with our merged version
     Copy-Item $tempZipPath $CloudFile -Force
-    Write-Host "[Merge] New cards preserved successfully!" -ForegroundColor Green
+    Write-Host "[Merge] New cards and images preserved successfully!" -ForegroundColor Green
 
 } catch {
     Write-Host "[Merge] Failed: $_" -ForegroundColor Red
