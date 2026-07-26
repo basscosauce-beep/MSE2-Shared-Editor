@@ -27,22 +27,27 @@ $localContent = Read-SetContent $LocalBackup
 $cloudContent = Read-SetContent $CloudFile
 if (-not $localContent -or -not $cloudContent) { return }
 
-# Build a set of time_created values from the cloud version
-$cloudTimes = [System.Collections.Generic.HashSet[string]]::new()
-$cloudContent -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
-    if ($_ -match "time_created: ([^\r\n]+)") { $cloudTimes.Add($matches[1].Trim()) | Out-Null }
+# Build a set of time_created values from the LOCAL version
+# (local is authoritative - edits and deletions made locally must be respected)
+$localTimes = [System.Collections.Generic.HashSet[string]]::new()
+$localContent -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
+    if ($_ -match "time_created: ([^\r\n]+)") { $localTimes.Add($matches[1].Trim()) | Out-Null }
 }
 
-# Find cards in the local backup that are NOT in the cloud version
-$newCards = @($localContent -split "(?m)^(?=card:)" | Where-Object {
-    $_ -match "^card:" -and $_ -match "time_created: ([^\r\n]+)" -and -not $cloudTimes.Contains($matches[1].Trim())
+# Find cards in the CLOUD that are NOT in the local version (these are friends' new cards)
+$friendCards = @($cloudContent -split "(?m)^(?=card:)" | Where-Object {
+    $_ -match "^card:" -and $_ -match "time_created: ([^\r\n]+)" -and -not $localTimes.Contains($matches[1].Trim())
 })
 
-if ($newCards.Count -eq 0) { return }
+$friendCount = $friendCards.Count
+Write-Host "[Merge] Local cards: $($localTimes.Count) | New cards from friends: $friendCount" -ForegroundColor Cyan
 
-Write-Host "[Merge] Preserving $($newCards.Count) new local card(s)..." -ForegroundColor Cyan
-
-$mergedContent = $cloudContent.TrimEnd("`r","`n") + "`n" + ($newCards -join "")
+# Merged result = user's full local copy (edits/deletions intact) + any new cards from friends
+if ($friendCount -gt 0) {
+    $mergedContent = $localContent.TrimEnd("`r","`n") + "`n" + ($friendCards -join "")
+} else {
+    $mergedContent = $localContent
+}
 
 # --- Temp-file swap to avoid file lock issues ---
 # 1. Write the merged content to a brand-new temp zip
