@@ -1,17 +1,19 @@
 $Host.UI.RawUI.WindowTitle = "Magic Set Editor - Manual Sync"
 
 # Auto-save MSE2 BEFORE killing it so unsaved cards are flushed to disk
-$mseProc = Get-Process "magicseteditor" -ErrorAction SilentlyContinue
+$mseProc = Get-Process "magicseteditor" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
 if ($mseProc) {
     Write-Host "Auto-saving your cards..." -ForegroundColor Cyan
     Add-Type -AssemblyName Microsoft.VisualBasic
     Add-Type -AssemblyName System.Windows.Forms
     try {
         [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id)
-        Start-Sleep -Milliseconds 800
+        Start-Sleep -Milliseconds 1000
         [System.Windows.Forms.SendKeys]::SendWait("^s")
-        Start-Sleep -Milliseconds 1500  # Wait for file write to finish
-    } catch {}
+        Start-Sleep -Milliseconds 2500  # Wait for file write to finish
+    } catch {
+        Write-Host "Warning: Auto-save failed: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
 }
 
 # Now kill MSE2 so file locks are released
