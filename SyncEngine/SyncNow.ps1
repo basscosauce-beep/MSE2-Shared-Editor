@@ -89,7 +89,7 @@ Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
 if ($localBackupPath -and (Test-Path $localBackupPath)) {
     $cloudSetFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
     if ($cloudSetFile) {
-        . "$PSScriptRoot\MergeSetFile.ps1" -LocalBackup $localBackupPath -CloudFile $cloudSetFile.FullName
+        . "$PSScriptRoot\MergeSetFile.ps1" -LocalBackup $localBackupPath -CloudFile $cloudSetFile.FullName -UserName $userName
     }
     Remove-Item $localBackupPath -Force -ErrorAction SilentlyContinue
 }
@@ -103,6 +103,7 @@ if ($localBackupPath -and (Test-Path $localBackupPath)) {
 # STEP 5: Commit everything (merged cards + creator fields) and push
 # ---------------------------------------------------------------
 Write-Host "Uploading your cards to the cloud..." -ForegroundColor Yellow
+# Add set files, tombstone, and any new backup marker files (last_known_* are gitignored)
 & $gitCmd -C $repoDir add "Shared-Set/" *>$null
 & $gitCmd -C $repoDir commit -m "Auto-sync card updates" *>$null
 
