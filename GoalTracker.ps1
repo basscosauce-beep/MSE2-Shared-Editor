@@ -632,7 +632,29 @@ try {
                 $pickedRarity = Invoke-WeightedPick $rarities $rarW
 
                 $mvNum = $pickedMv -replace "MV ", ""
-                return @{ Color=$pickedColor; Type=$pickedType; Mv=$mvNum; Rarity=$pickedRarity }
+
+                # For Multicolor: pick 2-3 specific colors weighted by how underrepresented they are
+                $colorPair = @()
+                if ($pickedColor -eq "Multicolor") {
+                    $wubrg     = @("White","Blue","Black","Red","Green")
+                    # Colors that appear LESS in existing multicolor cards are weighted higher
+                    $pairW     = @(foreach ($cc in $wubrg) {
+                        [math]::Max(1, 20 - [int]$actuals["MulticolorDist_$cc"])
+                    })
+                    $numColors = if ((Get-Random -Minimum 0 -Maximum 3) -eq 0) { 3 } else { 2 }
+                    $remKeys   = [System.Collections.ArrayList]$wubrg
+                    $remW      = [System.Collections.ArrayList]$pairW
+                    for ($pi = 0; $pi -lt $numColors; $pi++) {
+                        if ($remKeys.Count -eq 0) { break }
+                        $chosen = Invoke-WeightedPick $remKeys.ToArray() $remW.ToArray()
+                        $colorPair += $chosen
+                        $idx = $remKeys.IndexOf($chosen)
+                        $remKeys.RemoveAt($idx)
+                        $remW.RemoveAt($idx)
+                    }
+                }
+
+                return @{ Color=$pickedColor; Type=$pickedType; Mv=$mvNum; Rarity=$pickedRarity; ColorPair=$colorPair }
             }
 
             # --- Build the widget UI ------------------------------------------
@@ -723,25 +745,33 @@ try {
             $recStack.Children.Add($shuffleBtn) | Out-Null
 
             # Closure: compute and repaint the card display
+            $colorInitial = @{"White"="W";"Blue"="U";"Black"="B";"Red"="R";"Green"="G"}
             $updateRec = {
                 $rec    = Get-Recommendation
                 $col    = $rec.Color
                 $accent = $colorAccentHex[$col]
-                $dot    = $colorDot[$col]
                 $conv   = New-Object System.Windows.Media.BrushConverter
 
-                $cardBorder.BorderBrush   = $conv.ConvertFromString($accent)
-                $dotBorder.Background     = $conv.ConvertFromString($accent)
-                $dotLbl.Text              = $dot
+                $cardBorder.BorderBrush = $conv.ConvertFromString($accent)
+                $dotBorder.Background   = $conv.ConvertFromString($accent)
 
                 $mvTxt = if ($rec.Mv -eq "7+") { "7+ Mana" } elseif ($rec.Mv -eq "0") { "0 Mana (Free)" } else { "$($rec.Mv) Mana" }
-                $mvLabel.Text             = $mvTxt
+                $mvLabel.Text = $mvTxt
 
-                $cardTitle.Text           = "$col $($typeDisplay[$rec.Type])"
-                $cardTitle.Foreground     = $conv.ConvertFromString($accent)
+                if ($col -eq "Multicolor" -and $rec.ColorPair.Count -gt 0) {
+                    # Show the specific color pair: badge "WB", title "White/Black Creature"
+                    $initials  = ($rec.ColorPair | ForEach-Object { $colorInitial[$_] }) -join ""
+                    $colorName = $rec.ColorPair -join " / "
+                    $dotLbl.Text    = $initials
+                    $cardTitle.Text = "$colorName $($typeDisplay[$rec.Type])"
+                } else {
+                    $dotLbl.Text    = $colorDot[$col]
+                    $cardTitle.Text = "$col $($typeDisplay[$rec.Type])"
+                }
+                $cardTitle.Foreground = $conv.ConvertFromString($accent)
 
-                $rarityLbl.Text           = $rec.Rarity
-                $rarityLbl.Foreground     = $conv.ConvertFromString($rarityColor[$rec.Rarity])
+                $rarityLbl.Text       = $rec.Rarity
+                $rarityLbl.Foreground = $conv.ConvertFromString($rarityColor[$rec.Rarity])
             }.GetNewClosure()
 
             $shuffleBtn.add_Click($updateRec)
