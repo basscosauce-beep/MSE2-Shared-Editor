@@ -487,6 +487,85 @@ try {
                 $panel.Children.Add($grid)
             }
         }
+
+        # ── TOTAL CARDS SUMMARY (bottom of every tab) ────────────────────────
+        $tabGoal   = 0
+        $tabActual = 0
+        foreach ($t in $types) {
+            $tabGoal   += [int]$goals["${c}_${t}"]
+            $tabActual += [int]$actuals["${c}_${t}"]
+        }
+        $tabRemaining = $tabGoal - $tabActual
+
+        # Divider
+        $divider = New-Object System.Windows.Controls.Border
+        $divider.BorderThickness = "0,1,0,0"
+        $divider.BorderBrush = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#444")
+        $divider.Margin = "0,18,0,0"
+        $panel.Children.Add($divider) | Out-Null
+
+        # Summary row
+        $summGrid = New-Object System.Windows.Controls.Grid
+        $summGrid.Margin = "0,10,0,6"
+        $summGrid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::Auto}))
+        $summGrid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::new(1,[System.Windows.GridUnitType]::Star)}))
+        $summGrid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::Auto}))
+        $summGrid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width=[System.Windows.GridLength]::Auto}))
+
+        $summLbl = New-Object System.Windows.Controls.TextBlock
+        $summLbl.Text = "TOTAL CARDS"
+        $summLbl.FontWeight = "Bold"
+        $summLbl.FontSize = 11
+        $summLbl.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#AAA")
+        $summLbl.VerticalAlignment = "Center"
+        [System.Windows.Controls.Grid]::SetColumn($summLbl, 0)
+        $summGrid.Children.Add($summLbl) | Out-Null
+
+        if ($c -ne "Baseline") {
+            $summCount = New-Object System.Windows.Controls.TextBlock
+            $summCount.Text = "$tabActual / $tabGoal"
+            $summCount.FontWeight = "Bold"
+            $summCount.FontSize = 12
+            $summCount.Foreground = "White"
+            $summCount.VerticalAlignment = "Center"
+            $summCount.HorizontalAlignment = "Right"
+            [System.Windows.Controls.Grid]::SetColumn($summCount, 2)
+            $summGrid.Children.Add($summCount) | Out-Null
+
+            $pillBorder = New-Object System.Windows.Controls.Border
+            $pillBorder.CornerRadius = "8"
+            $pillBorder.Padding = "8,3"
+            $pillBorder.Margin = "10,0,0,0"
+            $pillBorder.VerticalAlignment = "Center"
+            $conv = New-Object System.Windows.Media.BrushConverter
+            if ($tabRemaining -le 0) {
+                $pillBorder.Background = $conv.ConvertFromString("#1B5E20")
+                $pillText = if ($tabRemaining -eq 0) { "Complete!" } else { "$(-$tabRemaining) over" }
+            } else {
+                $pillBorder.Background = $conv.ConvertFromString("#37474F")
+                $pillText = "$tabRemaining to go"
+            }
+            $pillLbl = New-Object System.Windows.Controls.TextBlock
+            $pillLbl.Text = $pillText
+            $pillLbl.Foreground = "White"
+            $pillLbl.FontSize = 10
+            $pillLbl.FontWeight = "SemiBold"
+            $pillBorder.Child = $pillLbl
+            [System.Windows.Controls.Grid]::SetColumn($pillBorder, 3)
+            $summGrid.Children.Add($pillBorder) | Out-Null
+        } else {
+            $summCount = New-Object System.Windows.Controls.TextBlock
+            $summCount.Text = "$tabGoal cards planned"
+            $summCount.FontWeight = "Bold"
+            $summCount.FontSize = 12
+            $summCount.Foreground = "White"
+            $summCount.VerticalAlignment = "Center"
+            $summCount.HorizontalAlignment = "Right"
+            [System.Windows.Controls.Grid]::SetColumn($summCount, 2)
+            $summGrid.Children.Add($summCount) | Out-Null
+        }
+
+        $panel.Children.Add($summGrid) | Out-Null
     }
 
     $window.FindName("BtnSave").add_Click({
