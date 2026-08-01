@@ -287,6 +287,98 @@ try {
     $goalBoxes = @{}
     $lockBoxes = @{}
 
+    # -- Recommendation widget: lookup tables and functions -------------------
+    $colorAccentHex = @{
+        "White"="#C8B87A"; "Blue"="#1A6EC4"; "Black"="#6A4C9C"
+        "Red"="#C0392B"; "Green"="#27AE60"; "Colorless"="#607D8B"
+        "Multicolor"="#C0922A"; "Total Set"="#8888BB"
+    }
+    $colorDot = @{
+        "White"="W"; "Blue"="U"; "Black"="B"
+        "Red"="R"; "Green"="G"; "Colorless"="C"; "Multicolor"="M"; "Total Set"="ALL"
+    }
+    $typeDisplay = @{
+        "Creatures"="Creature"; "Enchantments"="Enchantment"
+        "Instants/Sorceries"="Instant / Sorcery"; "Artifacts"="Artifact"; "Lands"="Land"
+    }
+    $rarityColor = @{
+        "Common"="#AAA"; "Uncommon"="#62B5E5"; "Rare"="#D4AF37"; "Mythic Rare"="#E8751A"
+    }
+    $colorInitial = @{"White"="W";"Blue"="U";"Black"="B";"Red"="R";"Green"="G"}
+
+    # Weighted random: items with higher weight are picked more often
+    function Invoke-WeightedPick {
+        param($keys, $weights)
+        $total = 0.0
+        foreach ($w in $weights) { $total += $w }
+        if ($total -le 0) { return $keys[0] }
+        $rand = (Get-Random -Minimum 0 -Maximum 10000) / 10000.0 * $total
+        $cum  = 0.0
+        for ($i = 0; $i -lt $keys.Count; $i++) {
+            $cum += [double]$weights[$i]
+            if ($rand -le $cum) { return $keys[$i] }
+        }
+        return $keys[$keys.Count - 1]
+    }
+
+    # Card recommendation engine.
+    # $FixedColor: pin to a specific color (used by per-color tabs).
+    # Omit or pass "Total Set" to pick the most-needed color automatically.
+    function Get-Recommendation {
+        param([string]$FixedColor = "")
+
+        if ($FixedColor -and $FixedColor -ne "Total Set") {
+            $pickedColor = $FixedColor
+        } else {
+            $cols = @("White","Blue","Black","Red","Green","Colorless","Multicolor")
+            $colW = @(foreach ($col in $cols) {
+                $g = 0; $a = 0
+                foreach ($t in $types) { $g += [int]$goals["${col}_$t"]; $a += [int]$actuals["${col}_$t"] }
+                [math]::Max(0, $g - $a)
+            })
+            $pickedColor = Invoke-WeightedPick $cols $colW
+        }
+
+        $typeW = @(foreach ($t in $types) {
+            [math]::Max(0, [int]$goals["${pickedColor}_$t"] - [int]$actuals["${pickedColor}_$t"])
+        })
+        $pickedType = Invoke-WeightedPick $types $typeW
+
+        $mvW = @(foreach ($m in $mvs) {
+            [math]::Max(0, [int]$goals["${pickedColor}_$m"] - [int]$actuals["${pickedColor}_$m"])
+        })
+        $pickedMv = Invoke-WeightedPick $mvs $mvW
+
+        $rarW = @(foreach ($r in $rarities) {
+            [math]::Max(0, [int]$goals["${pickedColor}_$r"] - [int]$actuals["${pickedColor}_$r"])
+        })
+        $pickedRarity = Invoke-WeightedPick $rarities $rarW
+
+        $mvNum = $pickedMv -replace "MV ", ""
+
+        $colorPair = @()
+        if ($pickedColor -eq "Multicolor") {
+            $wubrg = @("White","Blue","Black","Red","Green")
+            $pairW = @(foreach ($cc in $wubrg) {
+                [math]::Max(1, 20 - [int]$actuals["MulticolorDist_$cc"])
+            })
+            $numColors = if ((Get-Random -Minimum 0 -Maximum 3) -eq 0) { 3 } else { 2 }
+            $remKeys = [System.Collections.ArrayList]$wubrg
+            $remW    = [System.Collections.ArrayList]$pairW
+            for ($pi = 0; $pi -lt $numColors; $pi++) {
+                if ($remKeys.Count -eq 0) { break }
+                $chosen = Invoke-WeightedPick $remKeys.ToArray() $remW.ToArray()
+                $colorPair += $chosen
+                $idx = $remKeys.IndexOf($chosen)
+                $remKeys.RemoveAt($idx)
+                $remW.RemoveAt($idx)
+            }
+        }
+
+        return @{ Color=$pickedColor; Type=$pickedType; Mv=$mvNum; Rarity=$pickedRarity; ColorPair=$colorPair }
+    }
+    # -------------------------------------------------------------------------
+
     function AddSection($panel, $title) {
         $tb = New-Object System.Windows.Controls.TextBlock
         $tb.Text = "-- $title " + ("-" * (35 - $title.Length))
@@ -567,97 +659,10 @@ try {
 
         $panel.Children.Add($summGrid) | Out-Null
 
-        # -- CARD RECOMMENDATION (Total Set tab only) --------------------------
-        if ($c -eq "Total Set") {
+        # -- CARD RECOMMENDATION (every tab except Baseline) ------------------
+        if ($c -ne "Baseline") {
+            $tabColor = $c
 
-            $colorAccent = @{
-                "White"="*C8B87A"; "Blue"="*1A6EC4"; "Black"="*6A4C9C"
-                "Red"="*C0392B"; "Green"="*27AE60"; "Colorless"="*607D8B"
-                "Multicolor"="*C0922A"
-            }
-            $colorAccentHex = @{
-                "White"="#C8B87A"; "Blue"="#1A6EC4"; "Black"="#6A4C9C"
-                "Red"="#C0392B"; "Green"="#27AE60"; "Colorless"="#607D8B"
-                "Multicolor"="#C0922A"
-            }
-            $colorDot = @{
-                "White"="W"; "Blue"="U"; "Black"="B"
-                "Red"="R"; "Green"="G"; "Colorless"="C"; "Multicolor"="M"
-            }
-            $typeDisplay = @{
-                "Creatures"="Creature"; "Enchantments"="Enchantment"
-                "Instants/Sorceries"="Instant / Sorcery"; "Artifacts"="Artifact"; "Lands"="Land"
-            }
-            $rarityColor = @{
-                "Common"="#AAA"; "Uncommon"="#62B5E5"; "Rare"="#D4AF37"; "Mythic Rare"="#E8751A"
-            }
-
-            # Weighted random pick — higher weight = more likely to be chosen
-            function Invoke-WeightedPick {
-                param($keys, $weights)
-                $total = 0.0
-                foreach ($w in $weights) { $total += $w }
-                if ($total -le 0) { return $keys[0] }
-                $rand = (Get-Random -Minimum 0 -Maximum 10000) / 10000.0 * $total
-                $cum  = 0.0
-                for ($i = 0; $i -lt $keys.Count; $i++) {
-                    $cum += [double]$weights[$i]
-                    if ($rand -le $cum) { return $keys[$i] }
-                }
-                return $keys[$keys.Count - 1]
-            }
-
-            function Get-Recommendation {
-                $cols = @("White","Blue","Black","Red","Green","Colorless","Multicolor")
-                $colW = @(foreach ($col in $cols) {
-                    $g = 0; $a = 0
-                    foreach ($t in $types) { $g += [int]$goals["${col}_$t"]; $a += [int]$actuals["${col}_$t"] }
-                    [math]::Max(0, $g - $a)
-                })
-                $pickedColor = Invoke-WeightedPick $cols $colW
-
-                $typeW = @(foreach ($t in $types) {
-                    [math]::Max(0, [int]$goals["${pickedColor}_$t"] - [int]$actuals["${pickedColor}_$t"])
-                })
-                $pickedType = Invoke-WeightedPick $types $typeW
-
-                $mvW = @(foreach ($m in $mvs) {
-                    [math]::Max(0, [int]$goals["${pickedColor}_$m"] - [int]$actuals["${pickedColor}_$m"])
-                })
-                $pickedMv = Invoke-WeightedPick $mvs $mvW
-
-                $rarW = @(foreach ($r in $rarities) {
-                    [math]::Max(0, [int]$goals["${pickedColor}_$r"] - [int]$actuals["${pickedColor}_$r"])
-                })
-                $pickedRarity = Invoke-WeightedPick $rarities $rarW
-
-                $mvNum = $pickedMv -replace "MV ", ""
-
-                # For Multicolor: pick 2-3 specific colors weighted by how underrepresented they are
-                $colorPair = @()
-                if ($pickedColor -eq "Multicolor") {
-                    $wubrg     = @("White","Blue","Black","Red","Green")
-                    # Colors that appear LESS in existing multicolor cards are weighted higher
-                    $pairW     = @(foreach ($cc in $wubrg) {
-                        [math]::Max(1, 20 - [int]$actuals["MulticolorDist_$cc"])
-                    })
-                    $numColors = if ((Get-Random -Minimum 0 -Maximum 3) -eq 0) { 3 } else { 2 }
-                    $remKeys   = [System.Collections.ArrayList]$wubrg
-                    $remW      = [System.Collections.ArrayList]$pairW
-                    for ($pi = 0; $pi -lt $numColors; $pi++) {
-                        if ($remKeys.Count -eq 0) { break }
-                        $chosen = Invoke-WeightedPick $remKeys.ToArray() $remW.ToArray()
-                        $colorPair += $chosen
-                        $idx = $remKeys.IndexOf($chosen)
-                        $remKeys.RemoveAt($idx)
-                        $remW.RemoveAt($idx)
-                    }
-                }
-
-                return @{ Color=$pickedColor; Type=$pickedType; Mv=$mvNum; Rarity=$pickedRarity; ColorPair=$colorPair }
-            }
-
-            # --- Build the widget UI ------------------------------------------
             $recSection = New-Object System.Windows.Controls.Border
             $recSection.Margin = "0,18,0,0"
             $recSection.CornerRadius = "10"
@@ -669,7 +674,6 @@ try {
             $recStack = New-Object System.Windows.Controls.StackPanel
             $recSection.Child = $recStack
 
-            # Header
             $hdrLbl = New-Object System.Windows.Controls.TextBlock
             $hdrLbl.Text = "[ NEXT CARD TO MAKE ]"
             $hdrLbl.FontSize = 11
@@ -678,7 +682,6 @@ try {
             $hdrLbl.Margin = "0,0,0,12"
             $recStack.Children.Add($hdrLbl) | Out-Null
 
-            # Card display box
             $cardBorder = New-Object System.Windows.Controls.Border
             $cardBorder.CornerRadius = "8"
             $cardBorder.Padding = "14,12"
@@ -689,12 +692,10 @@ try {
             $cardInner = New-Object System.Windows.Controls.StackPanel
             $cardBorder.Child = $cardInner
 
-            # Color dot + card title row
             $mainRow = New-Object System.Windows.Controls.StackPanel
             $mainRow.Orientation = "Horizontal"
             $mainRow.Margin = "0,0,0,6"
 
-            # Color badge (small colored pill showing W/U/B/R/G)
             $dotBorder = New-Object System.Windows.Controls.Border
             $dotBorder.CornerRadius = "4"
             $dotBorder.Padding = "7,2"
@@ -723,7 +724,6 @@ try {
             $mainTextStack.Children.Add($cardTitle) | Out-Null
             $cardInner.Children.Add($mainRow) | Out-Null
 
-            # Rarity label only
             $rarityLbl = New-Object System.Windows.Controls.TextBlock
             $rarityLbl.FontSize = 11
             $rarityLbl.FontWeight = "SemiBold"
@@ -732,7 +732,6 @@ try {
 
             $recStack.Children.Add($cardBorder) | Out-Null
 
-            # Shuffle button
             $shuffleBtn = New-Object System.Windows.Controls.Button
             $shuffleBtn.Content = "[ New Suggestion ]"
             $shuffleBtn.FontSize = 11
@@ -744,10 +743,9 @@ try {
             $shuffleBtn.BorderBrush = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#444466")
             $recStack.Children.Add($shuffleBtn) | Out-Null
 
-            # Closure: compute and repaint the card display
             $colorInitial = @{"White"="W";"Blue"="U";"Black"="B";"Red"="R";"Green"="G"}
             $updateRec = {
-                $rec    = Get-Recommendation
+                $rec    = Get-Recommendation -FixedColor $tabColor
                 $col    = $rec.Color
                 $accent = $colorAccentHex[$col]
                 $conv   = New-Object System.Windows.Media.BrushConverter
@@ -759,7 +757,6 @@ try {
                 $mvLabel.Text = $mvTxt
 
                 if ($col -eq "Multicolor" -and $rec.ColorPair.Count -gt 0) {
-                    # Show the specific color pair: badge "WB", title "White/Black Creature"
                     $initials  = ($rec.ColorPair | ForEach-Object { $colorInitial[$_] }) -join ""
                     $colorName = $rec.ColorPair -join " / "
                     $dotLbl.Text    = $initials
