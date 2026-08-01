@@ -922,18 +922,82 @@ card:
 `thas_styling: false
 "@
 
-                # -- Write to draft file (safe: doesn't touch the zip MSE2 has open) --
-                $safeCreator = $creator -replace '[\\/:*?"<>|]', '_'
-                $draftPath = "$env:LOCALAPPDATA\MSE2_Shared_Cloud\Shared-Set\draft_cards_${safeCreator}.txt"
+                # -- Mini-sync: save MSE2 -> close -> write card -> reopen --------
+                $confirm = [System.Windows.MessageBox]::Show(
+                    "MSE2 will briefly close and reopen with the card already in it.`nUnsaved changes will be saved first.`n`nAdd: $manaCost $superType ($rarStr) by $creator?",
+                    "Create This Card", "YesNo", "Question")
+                if ($confirm -ne "Yes") { return }
+
+                # 1. Auto-save MSE2
+                $mseProc = Get-Process "magicseteditor" -ErrorAction SilentlyContinue |
+                           Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+                if ($mseProc) {
+                    try {
+                        Add-Type -AssemblyName Microsoft.VisualBasic
+                        Add-Type -AssemblyName System.Windows.Forms
+                        [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id)
+                        Start-Sleep -Milliseconds 600
+                        [System.Windows.Forms.SendKeys]::SendWait("^s")
+                        Start-Sleep -Milliseconds 2200   # wait for disk write
+                    } catch {}
+                }
+
+                # 2. Close MSE2 (releases zip lock)
+                Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
+                Stop-Process -Name "MenuAddon"      -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 1
+
+                # 3. Write the card block directly into the zip
+                $launched = $false
                 try {
-                    Add-Content -Path $draftPath -Value $cardBlock -Encoding UTF8
+                    $tmpZip = [System.IO.Path]::GetTempFileName() + ".mse-set"
+
+                    $srcZip = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
+                    $dstZip = [System.IO.Compression.ZipFile]::Open($tmpZip, [System.IO.Compression.ZipArchiveMode]::Create)
+
+                    # Read existing "set" text
+                    $srcEnt = $srcZip.Entries | Where-Object { $_.Name -eq "set" }
+                    $sr2    = New-Object System.IO.StreamReader($srcEnt.Open(), [System.Text.Encoding]::UTF8)
+                    $setTxt = $sr2.ReadToEnd()
+                    $sr2.Dispose()
+
+                    # Append card block
+                    $newContent = $setTxt.TrimEnd() + "`n" + $cardBlock + "`n"
+
+                    # Write new "set" entry
+                    $dstEnt = $dstZip.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
+                    $ds     = $dstEnt.Open()
+                    $dwr    = New-Object System.IO.StreamWriter($ds, [System.Text.Encoding]::UTF8)
+                    $dwr.Write($newContent); $dwr.Flush(); $dwr.Dispose()
+
+                    # Copy all image/other entries unchanged
+                    foreach ($imgEnt in ($srcZip.Entries | Where-Object { $_.Name -ne "set" })) {
+                        $dImg = $dstZip.CreateEntry($imgEnt.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+                        $si = $imgEnt.Open(); $di = $dImg.Open()
+                        $si.CopyTo($di); $si.Dispose(); $di.Dispose()
+                    }
+                    $srcZip.Dispose(); $dstZip.Dispose()
+
+                    # Swap in the new zip
+                    Copy-Item $tmpZip $setFile.FullName -Force
+                    Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+
+                    # 4. Relaunch MSE2
+                    Start-Process "wscript.exe" -ArgumentList "`"$appData\Launch_Silent.vbs`""
+                    $launched = $true
+
                     [System.Windows.MessageBox]::Show(
-                        "Card queued for $creator!`n`nCard: $manaCost $superType ($rarStr)`n`nIt will appear in the set after your next Sync.",
-                        "Card Queued", "OK", "Information")
+                        "Card added!`n`n$manaCost $superType ($rarStr) - by $creator`n`nMSE2 is reopening with your new card ready to edit.",
+                        "Card Created", "OK", "Information")
                 } catch {
-                    [System.Windows.MessageBox]::Show("Could not write draft: $($_.Exception.Message)", "Error", "OK", "Error")
+                    [System.Windows.MessageBox]::Show("Failed to add card: $($_.Exception.Message)", "Error", "OK", "Error")
+                } finally {
+                    if (-not $launched) {
+                        Start-Process "wscript.exe" -ArgumentList "`"$appData\Launch_Silent.vbs`""
+                    }
                 }
             }.GetNewClosure()
+
 
             $shuffleBtn.add_Click($updateRec)
             $createBtn.add_Click($createCard)
