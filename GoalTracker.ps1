@@ -3,6 +3,27 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.Web.Extensions
 
+# -- Single-instance guard: only one Goal Tracker per PC at a time -------------
+$_gtMutex   = New-Object System.Threading.Mutex($false, "MSE2_GoalTracker_SingleInstance")
+$_ownsMutex = $false
+try   { $_ownsMutex = $_gtMutex.WaitOne(0) }
+catch [System.Threading.AbandonedMutexException] { $_ownsMutex = $true }  # previous crash: take it
+
+if (-not $_ownsMutex) {
+    # Bring the existing window to front and quit
+    $existing = Get-Process | Where-Object { $_.MainWindowTitle -match "Set Goal Tracker" } | Select-Object -First 1
+    if ($existing -and $existing.MainWindowHandle -ne 0) {
+        try {
+            Add-Type -AssemblyName Microsoft.VisualBasic
+            [Microsoft.VisualBasic.Interaction]::AppActivate($existing.Id)
+        } catch {}
+    }
+    exit
+}
+# Release the Mutex when this PowerShell process exits
+Register-EngineEvent PowerShell.Exiting -Action { try { $_gtMutex.ReleaseMutex() } catch {} } | Out-Null
+# ------------------------------------------------------------------------------
+
 try {
     $appData = "$env:LOCALAPPDATA\MSE2_Shared_Cloud"
 
