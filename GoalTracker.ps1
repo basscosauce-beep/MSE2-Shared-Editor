@@ -377,7 +377,9 @@ try {
 
         $mvNum = $pickedMv -replace "MV ", ""
 
-        $colorPair = @()
+        # Lands never have a mana cost - clear MV
+        if ($pickedType -eq "Lands") { $mvNum = "" }
+
         if ($pickedColor -eq "Multicolor") {
             $wubrg = @("White","Blue","Black","Red","Green")
             $pairW = @(foreach ($cc in $wubrg) {
@@ -857,7 +859,10 @@ try {
                 $cardBorder.BorderBrush = $conv.ConvertFromString($accent)
                 $dotBorder.Background   = $conv.ConvertFromString($accent)
 
-                $mvTxt = if ($rec.Mv -eq "7+") { "7+ Mana" } elseif ($rec.Mv -eq "0") { "0 Mana (Free)" } else { "$($rec.Mv) Mana" }
+                $mvTxt = if ($rec.Type -eq "Lands") { "No Mana Cost" }
+                         elseif ($rec.Mv -eq "7+") { "7+ Mana" }
+                         elseif ($rec.Mv -eq "0") { "0 Mana (Free)" }
+                         else { "$($rec.Mv) Mana" }
                 $mvLabel.Text = $mvTxt
 
                 if ($col -eq "Multicolor" -and $rec.ColorPair.Count -gt 0) {
@@ -891,21 +896,24 @@ try {
 
                 # -- Build MSE2 mana cost string --
                 $symMap  = @{"White"="W";"Blue"="U";"Black"="B";"Red"="R";"Green"="G"}
-                $mvInt   = if ($rec.Mv -eq "7+") { 7 } else { [int]$rec.Mv }
+                $mvInt   = if ($rec.Mv -eq "7+") { 7 } elseif ($rec.Mv -eq "") { 0 } else { [int]$rec.Mv }
                 $manaCost = ""
-                if ($rec.Color -eq "Colorless") {
-                    $manaCost = if ($mvInt -eq 0) { "0" } else { "$mvInt" }
-                } elseif ($rec.Color -eq "Multicolor" -and $rec.ColorPair.Count -gt 0) {
-                    $numPips = $rec.ColorPair.Count
-                    $cl = [math]::Max(0, $mvInt - $numPips)
-                    if ($cl -gt 0) { $manaCost += "$cl" }
-                    foreach ($cp in $rec.ColorPair) { $manaCost += $symMap[$cp] }
-                } else {
-                    $sym = $symMap[$rec.Color]
-                    if ($mvInt -eq 0) { $manaCost = "0" }
-                    elseif ($mvInt -eq 1) { $manaCost = $sym }
-                    else { $manaCost = "$($mvInt - 1)$sym" }
+                if ($rec.Type -ne "Lands") {
+                    if ($rec.Color -eq "Colorless") {
+                        $manaCost = if ($mvInt -eq 0) { "0" } else { "$mvInt" }
+                    } elseif ($rec.Color -eq "Multicolor" -and $rec.ColorPair.Count -gt 0) {
+                        $numPips = $rec.ColorPair.Count
+                        $cl = [math]::Max(0, $mvInt - $numPips)
+                        if ($cl -gt 0) { $manaCost += "$cl" }
+                        foreach ($cp in $rec.ColorPair) { $manaCost += $symMap[$cp] }
+                    } else {
+                        $sym = $symMap[$rec.Color]
+                        if ($mvInt -eq 0) { $manaCost = "0" }
+                        elseif ($mvInt -eq 1) { $manaCost = $sym }
+                        else { $manaCost = "$($mvInt - 1)$sym" }
+                    }
                 }
+                # Lands: $manaCost stays ""
 
                 # -- Build MSE2 card type --
                 $superType = switch ($rec.Type) {
