@@ -859,11 +859,12 @@ try {
                 $cardBorder.BorderBrush = $conv.ConvertFromString($accent)
                 $dotBorder.Background   = $conv.ConvertFromString($accent)
 
-                $mvTxt = if ($rec.Type -eq "Lands") { "No Mana Cost" }
-                         elseif ($rec.Mv -eq "7+") { "7+ Mana" }
-                         elseif ($rec.Mv -eq "0") { "0 Mana (Free)" }
-                         else { "$($rec.Mv) Mana" }
-                $mvLabel.Text = $mvTxt
+                if ($rec.Type -eq "Lands") {
+                    $mvLabel.Visibility = "Collapsed"
+                } else {
+                    $mvLabel.Visibility = "Visible"
+                    $mvLabel.Text = if ($rec.Mv -eq "7+") { "7+ Mana" } elseif ($rec.Mv -eq "0") { "0 Mana (Free)" } else { "$($rec.Mv) Mana" }
+                }
 
                 if ($col -eq "Multicolor" -and $rec.ColorPair.Count -gt 0) {
                     $initials  = ($rec.ColorPair | ForEach-Object { $colorInitial[$_] }) -join ""
