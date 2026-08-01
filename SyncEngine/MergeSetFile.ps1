@@ -150,30 +150,37 @@ foreach ($tc in $localMap.Keys) {
             #   • If user's copy matches baseline → user DIDN'T change it → cloud wins
             #   • If cloud matches baseline  → cloud DIDN'T change  → user wins
             #   • Both changed → creator wins as tiebreaker
-            $baselineHash  = $lastKnownHash[$tc]   # may be empty on first sync
-            $localHash     = Get-CardHash $localCard
-            $cloudHash     = Get-CardHash $cloudCard
+            $baselineHash = if ($lastKnownHash.ContainsKey($tc)) { $lastKnownHash[$tc] } else { $null }
 
-            $userChanged   = ($localHash  -ne $baselineHash)
-            $friendChanged = ($cloudHash  -ne $baselineHash)
-
-            if ($userChanged -and -not $friendChanged) {
-                # Only user changed → user wins
+            if (-not $baselineHash) {
+                # No baseline (first sync after update, or brand-new card)
+                # Safe default: keep local — self-corrects after one sync once hashes are saved
                 $mergedCards.Add($localCard) | Out-Null
-                Write-Host "[Merge] Your edit wins (friend had stale copy): $(($localCard -split '\r?\n')[0].Trim())" -ForegroundColor Cyan
-            } elseif ($friendChanged -and -not $userChanged) {
-                # Only friend changed → cloud wins
-                $mergedCards.Add($cloudCard) | Out-Null
-                Write-Host "[Merge] Friend's edit wins (your copy was stale): $(($cloudCard -split '\r?\n')[0].Trim())" -ForegroundColor DarkCyan
+                Write-Host "[Merge] No baseline for card — keeping local copy: $(($localCard -split '\r?\n')[0].Trim())" -ForegroundColor DarkGray
             } else {
-                # Both changed (or baseline unknown) → creator wins as tiebreaker
-                $creator = Get-CardCreator $localCard
-                if ($creator -eq $UserName) {
+                $localHash     = Get-CardHash $localCard
+                $cloudHash     = Get-CardHash $cloudCard
+                $userChanged   = ($localHash  -ne $baselineHash)
+                $friendChanged = ($cloudHash  -ne $baselineHash)
+
+                if ($userChanged -and -not $friendChanged) {
+                    # Only user changed → user wins
                     $mergedCards.Add($localCard) | Out-Null
-                    Write-Host "[Merge] Both edited — your card, your edit kept: $(($localCard -split '\r?\n')[0].Trim())" -ForegroundColor Cyan
-                } else {
+                    Write-Host "[Merge] Your edit wins (friend had stale copy): $(($localCard -split '\r?\n')[0].Trim())" -ForegroundColor Cyan
+                } elseif ($friendChanged -and -not $userChanged) {
+                    # Only friend changed → cloud wins
                     $mergedCards.Add($cloudCard) | Out-Null
-                    Write-Host "[Merge] Both edited — friend's card, cloud edit kept: $(($cloudCard -split '\r?\n')[0].Trim())" -ForegroundColor DarkCyan
+                    Write-Host "[Merge] Friend's edit wins (your copy was stale): $(($cloudCard -split '\r?\n')[0].Trim())" -ForegroundColor DarkCyan
+                } else {
+                    # Both changed → creator wins as tiebreaker
+                    $creator = Get-CardCreator $localCard
+                    if ($creator -eq $UserName) {
+                        $mergedCards.Add($localCard) | Out-Null
+                        Write-Host "[Merge] Both edited — your card, your edit kept: $(($localCard -split '\r?\n')[0].Trim())" -ForegroundColor Cyan
+                    } else {
+                        $mergedCards.Add($cloudCard) | Out-Null
+                        Write-Host "[Merge] Both edited — friend's card, cloud edit kept: $(($cloudCard -split '\r?\n')[0].Trim())" -ForegroundColor DarkCyan
+                    }
                 }
             }
         }
@@ -202,16 +209,30 @@ $mergedContent = $header + ($mergedCards -join "")
 
 # -----------------------------------------------------------------------
 # Update last_known snapshot for this user (saved locally, gitignored)
-# Format: "time_created|sha256hash" — hash lets us detect future changes
+# IMPORTANT: This is called AFTER FillCreators has run in SyncNow.ps1
+# so hashes reflect the final card state (including creator fields).
+# This function is exported and called by SyncNow.ps1.
 # -----------------------------------------------------------------------
-$knownLines = foreach ($card in $mergedCards) {
-    if ($card -match "time_created: ([^\r\n]+)") {
-        $tc   = $matches[1].Trim()
-        $hash = Get-CardHash $card
-        "$tc|$hash"
+function Save-LastKnown {
+    param([string]$SetFilePath, [string]$KnownFile)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    Add-Type -AssemblyName System.IO.Compression
+    $finalContent = Read-SetContent $SetFilePath
+    if (-not $finalContent) { return }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $lines = $finalContent -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
+        if ($_ -match "time_created: ([^\r\n]+)") {
+            $tc   = $matches[1].Trim()
+            $hash = ([System.BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($_))) -replace '-','').Substring(0,16)
+            "$tc|$hash"
+        }
     }
+    $sha.Dispose()
+    Set-Content $KnownFile -Value ($lines -join "`n") -Encoding UTF8
 }
-Set-Content $lastKnownFile -Value ($knownLines -join "`n") -Encoding UTF8
+
+# Call immediately so MergeSetFile still saves a baseline (SyncNow overwrites after FillCreators)
+Save-LastKnown -SetFilePath $CloudFile -KnownFile $lastKnownFile
 
 # -----------------------------------------------------------------------
 # Write updated tombstone (will be git-committed so all users see it)

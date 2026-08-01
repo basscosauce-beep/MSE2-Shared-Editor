@@ -94,10 +94,24 @@ if ($localBackupPath -and (Test-Path $localBackupPath)) {
     Remove-Item $localBackupPath -Force -ErrorAction SilentlyContinue
 }
 
-# ---------------------------------------------------------------
+# -----------------------------------------------------------------------
 # STEP 4: Auto-fill the "By" column for any cards missing a creator
-# ---------------------------------------------------------------
+# -----------------------------------------------------------------------
 . "$PSScriptRoot\FillCreators.ps1" -RepoDir $repoDir -GitCmd $gitCmd -CredBypass $credBypass
+
+# -----------------------------------------------------------------------
+# STEP 4b: Re-save last_known hashes from the FINAL set file
+# (FillCreators may have modified card content; we need hashes of the
+# final state so the next sync's change-detection is accurate)
+# -----------------------------------------------------------------------
+if ($cloudSetFile) {
+    $safeUser      = $userName -replace '[\\/:*?"<>|]', '_'
+    $setDir        = [System.IO.Path]::GetDirectoryName($cloudSetFile.FullName)
+    $lastKnownFile = "$setDir\last_known_$safeUser.txt"
+    # Save-LastKnown was defined inside MergeSetFile.ps1 which was dot-sourced above
+    Save-LastKnown -SetFilePath $cloudSetFile.FullName -KnownFile $lastKnownFile
+    Write-Host "Hash baseline updated after creator fill." -ForegroundColor DarkGray
+}
 
 # ---------------------------------------------------------------
 # STEP 5: Commit everything (merged cards + creator fields) and push
