@@ -309,8 +309,8 @@ Write-Host "[Merge] Local: $($localMap.Count) | Friends new: $friendCount | Tomb
 # ===========================================================================
 $cloudHeader   = Get-SetHeader $cloudContent
 $localHeader   = Get-SetHeader $localContent
-$cloudKeywords = Get-KeywordMap $cloudContent
-$localKeywords = Get-KeywordMap $localContent
+$cloudKeywords = Get-KeywordMap $cloudHeader   # header only: prevents last kw block absorbing cards
+$localKeywords = Get-KeywordMap $localHeader   # header only: same reason
 
 # Union: start with cloud keywords, then add local-only ones
 $mergedKeywords = [ordered]@{}
