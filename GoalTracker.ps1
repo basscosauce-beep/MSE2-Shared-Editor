@@ -512,7 +512,50 @@ try {
 
         AddSection $panel "TYPES"
         foreach ($t in $types) { AddRow $panel $c $t }
-        
+
+        # Baseline tab: show a divergence table so you can see which colors are over/under
+        if ($c -eq "Baseline") {
+            $baselineSum = 0
+            foreach ($t in $types) { $baselineSum += [int]$goals["Baseline_$t"] }
+
+            $divSep = New-Object System.Windows.Controls.TextBlock
+            $divSep.Text = "-- COLOR DIVERGENCE " + ("-" * 15)
+            $divSep.FontWeight = "Bold"
+            $divSep.Foreground = "#AAA"
+            $divSep.Margin = "0,12,0,6"
+            $panel.Children.Add($divSep) | Out-Null
+
+            $anyDiv = $false
+            foreach ($col in @("White","Blue","Black","Red","Green","Colorless","Multicolor")) {
+                $colSum = 0
+                foreach ($t in $types) { $colSum += [int]$goals["${col}_$t"] }
+                $d = $colSum - $baselineSum
+                if ($d -ne 0) {
+                    $anyDiv = $true
+                    $dRow = New-Object System.Windows.Controls.TextBlock
+                    $dRow.FontSize = 11
+                    $dRow.Margin = "0,2,0,0"
+                    $conv = New-Object System.Windows.Media.BrushConverter
+                    if ($d -gt 0) {
+                        $dRow.Text = "  $col  +$d card(s) too many"
+                        $dRow.Foreground = $conv.ConvertFromString("#FFC107")
+                    } else {
+                        $dRow.Text = "  $col  $d card(s) too few"
+                        $dRow.Foreground = $conv.ConvertFromString("#FFC107")
+                    }
+                    $panel.Children.Add($dRow) | Out-Null
+                }
+            }
+            if (-not $anyDiv) {
+                $okRow = New-Object System.Windows.Controls.TextBlock
+                $okRow.Text = "  All colors match Baseline"
+                $okRow.FontSize = 11
+                $okRow.Margin = "0,2,0,0"
+                $okRow.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#4CAF50")
+                $panel.Children.Add($okRow) | Out-Null
+            }
+        }
+
         AddSection $panel "MANA VALUE"
         foreach ($m in $mvs) { AddRow $panel $c $m }
 
@@ -658,6 +701,25 @@ try {
         }
 
         $panel.Children.Add($summGrid) | Out-Null
+
+        # Divergence warning: show if this color's planned type total differs from Baseline
+        if ($c -ne "Baseline" -and $c -ne "Total Set") {
+            $baselineSum = 0
+            foreach ($t in $types) { $baselineSum += [int]$goals["Baseline_$t"] }
+            $div = $tabGoal - $baselineSum
+            if ($div -ne 0) {
+                $warnBlock = New-Object System.Windows.Controls.TextBlock
+                $warnBlock.FontSize = 11
+                $warnBlock.Margin = "0,4,0,0"
+                $warnBlock.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#FFC107")
+                if ($div -gt 0) {
+                    $warnBlock.Text = "$c has $div card(s) too many planned vs Baseline"
+                } else {
+                    $warnBlock.Text = "$c has $(-$div) card(s) too few planned vs Baseline"
+                }
+                $panel.Children.Add($warnBlock) | Out-Null
+            }
+        }
 
         # -- CARD RECOMMENDATION (every tab except Baseline) ------------------
         if ($c -ne "Baseline") {
