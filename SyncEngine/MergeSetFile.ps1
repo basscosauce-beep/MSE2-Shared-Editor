@@ -114,6 +114,14 @@ $mergedCards = [System.Collections.Generic.List[string]]::new()
 
 # 1. Process all cards in local: resolve conflicts for cards that also exist in cloud
 foreach ($tc in $localMap.Keys) {
+    # Skip ANY card in the tombstone — even if it's still in local
+    # (This is what makes deletions propagate to everyone: a tombstoned card
+    #  is excluded from the merge no matter which zip it comes from)
+    if ($tombstone.Contains($tc)) {
+        Write-Host "[Merge] Tombstoned card removed from local: $tc" -ForegroundColor DarkGray
+        continue
+    }
+
     $localCard = $localMap[$tc]
 
     if ($cloudMap.Contains($tc)) {
