@@ -794,20 +794,41 @@ try {
 
             $recStack.Children.Add($cardBorder) | Out-Null
 
+            # Button row: shuffle | create
+            $btnRow = New-Object System.Windows.Controls.StackPanel
+            $btnRow.Orientation = "Horizontal"
+            $btnRow.HorizontalAlignment = "Right"
+
             $shuffleBtn = New-Object System.Windows.Controls.Button
             $shuffleBtn.Content = "[ New Suggestion ]"
             $shuffleBtn.FontSize = 11
             $shuffleBtn.Padding = "12,6"
-            $shuffleBtn.HorizontalAlignment = "Right"
+            $shuffleBtn.Margin = "0,0,6,0"
             $shuffleBtn.Background = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#252545")
             $shuffleBtn.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#AAAACC")
             $shuffleBtn.BorderThickness = "1"
             $shuffleBtn.BorderBrush = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#444466")
-            $recStack.Children.Add($shuffleBtn) | Out-Null
+            $btnRow.Children.Add($shuffleBtn) | Out-Null
+
+            $createBtn = New-Object System.Windows.Controls.Button
+            $createBtn.Content = "[ Create This Card ]"
+            $createBtn.FontSize = 11
+            $createBtn.Padding = "12,6"
+            $createBtn.Background = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#1B3A1B")
+            $createBtn.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#6FCF6F")
+            $createBtn.BorderThickness = "1"
+            $createBtn.BorderBrush = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#2E6E2E")
+            $btnRow.Children.Add($createBtn) | Out-Null
+
+            $recStack.Children.Add($btnRow) | Out-Null
+
+            # Shared state: both closures reference this same hashtable
+            $sharedRec = @{ Current = $null }
 
             $colorInitial = @{"White"="W";"Blue"="U";"Black"="B";"Red"="R";"Green"="G"}
             $updateRec = {
                 $rec    = Get-Recommendation -FixedColor $tabColor
+                $sharedRec.Current = $rec   # store for Create button
                 $col    = $rec.Color
                 $accent = $colorAccentHex[$col]
                 $conv   = New-Object System.Windows.Media.BrushConverter
@@ -833,10 +854,93 @@ try {
                 $rarityLbl.Foreground = $conv.ConvertFromString($rarityColor[$rec.Rarity])
             }.GetNewClosure()
 
+            # Create This Card: generate mana cost, write draft file for next sync to pick up
+            $createCard = {
+                $rec = $sharedRec.Current
+                if (-not $rec) { return }
+
+                # -- Read username from git config (same source SyncNow uses) --
+                $gitExe = "$env:LOCALAPPDATA\MSE2_Shared_Cloud\mingit\cmd\git.exe"
+                $repoPath = "$env:LOCALAPPDATA\MSE2_Shared_Cloud"
+                $creator = $env:USERNAME
+                if (Test-Path $gitExe) {
+                    $gn = (& $gitExe -C $repoPath config user.name 2>$null).Trim()
+                    if ($gn) { $creator = $gn }
+                }
+
+                # -- Build MSE2 mana cost string --
+                $symMap  = @{"White"="W";"Blue"="U";"Black"="B";"Red"="R";"Green"="G"}
+                $mvInt   = if ($rec.Mv -eq "7+") { 7 } else { [int]$rec.Mv }
+                $manaCost = ""
+                if ($rec.Color -eq "Colorless") {
+                    $manaCost = if ($mvInt -eq 0) { "0" } else { "$mvInt" }
+                } elseif ($rec.Color -eq "Multicolor" -and $rec.ColorPair.Count -gt 0) {
+                    $numPips = $rec.ColorPair.Count
+                    $cl = [math]::Max(0, $mvInt - $numPips)
+                    if ($cl -gt 0) { $manaCost += "$cl" }
+                    foreach ($cp in $rec.ColorPair) { $manaCost += $symMap[$cp] }
+                } else {
+                    $sym = $symMap[$rec.Color]
+                    if ($mvInt -eq 0) { $manaCost = "0" }
+                    elseif ($mvInt -eq 1) { $manaCost = $sym }
+                    else { $manaCost = "$($mvInt - 1)$sym" }
+                }
+
+                # -- Build MSE2 card type --
+                $superType = switch ($rec.Type) {
+                    "Creatures"          { "Creature" }
+                    "Enchantments"       { "Enchantment" }
+                    "Instants/Sorceries" { if ((Get-Random -Maximum 2) -eq 0) { "Instant" } else { "Sorcery" } }
+                    "Artifacts"          { "Artifact" }
+                    "Lands"              { "Land" }
+                    default              { "Creature" }
+                }
+
+                $rarStr = switch ($rec.Rarity) {
+                    "Common"     { "common" }
+                    "Uncommon"   { "uncommon" }
+                    "Rare"       { "rare" }
+                    "Mythic Rare" { "mythic rare" }
+                    default      { "common" }
+                }
+
+                $now = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                $ptFields = if ($superType -eq "Creature") { "`n`tpower: 1`n`ttoughness: 1" } else { "" }
+
+                # -- MSE2 card block --
+                $cardBlock = @"
+card:
+`tname: 
+`tcasting_cost: $manaCost
+`tsuper_type: $superType
+`tsub_type: 
+`trarity: $rarStr
+`trule_text: $ptFields
+`ttime_created: $now
+`ttime_modified: $now
+`tcreator: $creator
+`thas_styling: false
+"@
+
+                # -- Write to draft file (safe: doesn't touch the zip MSE2 has open) --
+                $safeCreator = $creator -replace '[\\/:*?"<>|]', '_'
+                $draftPath = "$env:LOCALAPPDATA\MSE2_Shared_Cloud\Shared-Set\draft_cards_${safeCreator}.txt"
+                try {
+                    Add-Content -Path $draftPath -Value $cardBlock -Encoding UTF8
+                    [System.Windows.MessageBox]::Show(
+                        "Card queued for $creator!`n`nCard: $manaCost $superType ($rarStr)`n`nIt will appear in the set after your next Sync.",
+                        "Card Queued", "OK", "Information")
+                } catch {
+                    [System.Windows.MessageBox]::Show("Could not write draft: $($_.Exception.Message)", "Error", "OK", "Error")
+                }
+            }.GetNewClosure()
+
             $shuffleBtn.add_Click($updateRec)
+            $createBtn.add_Click($createCard)
             & $updateRec
 
             $panel.Children.Add($recSection) | Out-Null
+
         }
     }
 

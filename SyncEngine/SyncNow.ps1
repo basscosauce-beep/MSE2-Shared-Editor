@@ -88,6 +88,54 @@ Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
 # ---------------------------------------------------------------
 if ($localBackupPath -and (Test-Path $localBackupPath)) {
     $cloudSetFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
+
+    # -----------------------------------------------------------------------
+    # STEP 3a: Inject any "Create This Card" draft cards into the local backup
+    # GoalTracker writes draft_cards_<user>.txt; we append them here so they
+    # ride through MergeSetFile as newly-created local cards.
+    # -----------------------------------------------------------------------
+    $safeUserForDraft = $userName -replace '[\\/:*?"<>|]', '_'
+    $draftFile = "$repoDir\Shared-Set\draft_cards_${safeUserForDraft}.txt"
+    if (Test-Path $draftFile) {
+        $draftContent = Get-Content $draftFile -Raw
+        if ($draftContent.Trim()) {
+            Write-Host "Adding $($($draftContent -split '(?m)^card:' | Where-Object {$_.Trim()}).Count) drafted card(s) to your set..." -ForegroundColor Cyan
+            try {
+                Add-Type -AssemblyName System.IO.Compression.FileSystem
+                # Read existing backup set text
+                $bzr = [System.IO.Compression.ZipFile]::OpenRead($localBackupPath)
+                $bent = $bzr.Entries | Where-Object { $_.Name -eq "set" }
+                $bsr  = New-Object System.IO.StreamReader($bent.Open(), [System.Text.Encoding]::UTF8)
+                $bTxt = $bsr.ReadToEnd()
+                $bsr.Dispose(); $bzr.Dispose()
+
+                $newTxt = $bTxt.TrimEnd() + "`n" + $draftContent.Trim() + "`n"
+
+                # Write updated backup via temp zip
+                $tmpDraft = [System.IO.Path]::GetTempFileName() + ".mse-set"
+                $bsr2 = [System.IO.Compression.ZipFile]::OpenRead($localBackupPath)
+                $bdst = [System.IO.Compression.ZipFile]::Open($tmpDraft, [System.IO.Compression.ZipArchiveMode]::Create)
+                $bNewEnt = $bdst.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
+                $bNS = $bNewEnt.Open()
+                $bWr = New-Object System.IO.StreamWriter($bNS, [System.Text.Encoding]::UTF8)
+                $bWr.Write($newTxt); $bWr.Flush(); $bWr.Dispose()
+                foreach ($imgEnt in ($bsr2.Entries | Where-Object { $_.Name -ne "set" })) {
+                    $dEnt = $bdst.CreateEntry($imgEnt.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+                    $s2 = $imgEnt.Open(); $d2 = $dEnt.Open()
+                    $s2.CopyTo($d2); $s2.Dispose(); $d2.Dispose()
+                }
+                $bsr2.Dispose(); $bdst.Dispose()
+                Copy-Item $tmpDraft $localBackupPath -Force
+                Remove-Item $tmpDraft -Force -ErrorAction SilentlyContinue
+
+                Remove-Item $draftFile -Force -ErrorAction SilentlyContinue
+                Write-Host "Draft cards injected." -ForegroundColor Green
+            } catch {
+                Write-Host "Warning: Could not inject draft cards: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+    }
+
     if ($cloudSetFile) {
         . "$PSScriptRoot\MergeSetFile.ps1" -LocalBackup $localBackupPath -CloudFile $cloudSetFile.FullName -UserName $userName
     }
