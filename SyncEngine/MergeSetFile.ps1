@@ -1,7 +1,7 @@
 # MergeSetFile.ps1 - Smart card merge with:
 #   - Tombstone-based permanent deletion tracking
-#   - Last-known snapshot to detect new deletions per user
-#   - Ownership-based conflict resolution (your edits to your cards win)
+#   - Last-known snapshot (with content hashes) to detect changes per user
+#   - Change-wins conflict resolution: edited > unedited, creator as tiebreaker
 
 param(
     [string]$LocalBackup,
@@ -53,6 +53,15 @@ function Get-CardCreator($cardText) {
     return ""
 }
 
+# --- Helper: compute a short SHA256 hash of card text for change detection ---
+function Get-CardHash($text) {
+    $sha  = [System.Security.Cryptography.SHA256]::Create()
+    $hash = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($text))
+    $sha.Dispose()
+    # Return first 16 hex chars — plenty to detect any change
+    return ([System.BitConverter]::ToString($hash) -replace '-','').Substring(0, 16)
+}
+
 # -----------------------------------------------------------------------
 # Load data
 # -----------------------------------------------------------------------
@@ -76,14 +85,21 @@ if (Test-Path $tombstoneFile) {
 }
 
 # Last-known: what this user had after THEIR last sync (gitignored, per-user)
-# Lets us detect brand-new deletions vs cards we never had
-$safeUser     = $UserName -replace '[\\/:*?"<>|]', '_'
+# Format per line: "time_created|sha256hash"  (hash lets us detect if user changed a card)
+$safeUser      = $UserName -replace '[\\/:*?"<>|]', '_'
 $lastKnownFile = "$setDir\last_known_$safeUser.txt"
-$lastKnown    = [System.Collections.Generic.HashSet[string]]::new()
+$lastKnownHash = @{}   # tc -> hash at last sync
+$lastKnown     = [System.Collections.Generic.HashSet[string]]::new()
 if (Test-Path $lastKnownFile) {
     Get-Content $lastKnownFile | ForEach-Object {
         $line = $_.Trim()
-        if ($line) { $lastKnown.Add($line) | Out-Null }
+        if ($line) {
+            $parts = $line -split '\|', 2
+            $tc    = $parts[0]
+            $hash  = if ($parts.Count -gt 1) { $parts[1] } else { '' }
+            $lastKnown.Add($tc)         | Out-Null
+            $lastKnownHash[$tc] = $hash
+        }
     }
 }
 
@@ -114,9 +130,7 @@ $mergedCards = [System.Collections.Generic.List[string]]::new()
 
 # 1. Process all cards in local: resolve conflicts for cards that also exist in cloud
 foreach ($tc in $localMap.Keys) {
-    # Skip ANY card in the tombstone — even if it's still in local
-    # (This is what makes deletions propagate to everyone: a tombstoned card
-    #  is excluded from the merge no matter which zip it comes from)
+    # Tombstone always wins — skip regardless of source
     if ($tombstone.Contains($tc)) {
         Write-Host "[Merge] Tombstoned card removed from local: $tc" -ForegroundColor DarkGray
         continue
@@ -127,25 +141,44 @@ foreach ($tc in $localMap.Keys) {
     if ($cloudMap.Contains($tc)) {
         $cloudCard = $cloudMap[$tc]
 
-        if ($localCard -ne $cloudCard) {
-            # Same card, different content — resolve by creator ownership
-            $localCreator = Get-CardCreator $localCard
-            $cloudCreator = Get-CardCreator $cloudCard
-
-            if ($localCreator -eq $UserName) {
-                # It's your card — your local edit wins
-                $mergedCards.Add($localCard) | Out-Null
-                Write-Host "[Merge] Your edit kept for: $(($localCard -split '\r?\n')[1].Trim())" -ForegroundColor Cyan
-            } else {
-                # Friend's card — cloud version wins (friend may have updated it)
-                $mergedCards.Add($cloudCard) | Out-Null
-                Write-Host "[Merge] Friend's update accepted for: $(($cloudCard -split '\r?\n')[1].Trim())" -ForegroundColor DarkCyan
-            }
-        } else {
+        if ($localCard -eq $cloudCard) {
+            # Identical — no conflict
             $mergedCards.Add($localCard) | Out-Null
+        } else {
+            # Different versions — apply change-wins resolution:
+            #   • Compute what the user had at last sync (baseline hash)
+            #   • If user's copy matches baseline → user DIDN'T change it → cloud wins
+            #   • If cloud matches baseline  → cloud DIDN'T change  → user wins
+            #   • Both changed → creator wins as tiebreaker
+            $baselineHash  = $lastKnownHash[$tc]   # may be empty on first sync
+            $localHash     = Get-CardHash $localCard
+            $cloudHash     = Get-CardHash $cloudCard
+
+            $userChanged   = ($localHash  -ne $baselineHash)
+            $friendChanged = ($cloudHash  -ne $baselineHash)
+
+            if ($userChanged -and -not $friendChanged) {
+                # Only user changed → user wins
+                $mergedCards.Add($localCard) | Out-Null
+                Write-Host "[Merge] Your edit wins (friend had stale copy): $(($localCard -split '\r?\n')[0].Trim())" -ForegroundColor Cyan
+            } elseif ($friendChanged -and -not $userChanged) {
+                # Only friend changed → cloud wins
+                $mergedCards.Add($cloudCard) | Out-Null
+                Write-Host "[Merge] Friend's edit wins (your copy was stale): $(($cloudCard -split '\r?\n')[0].Trim())" -ForegroundColor DarkCyan
+            } else {
+                # Both changed (or baseline unknown) → creator wins as tiebreaker
+                $creator = Get-CardCreator $localCard
+                if ($creator -eq $UserName) {
+                    $mergedCards.Add($localCard) | Out-Null
+                    Write-Host "[Merge] Both edited — your card, your edit kept: $(($localCard -split '\r?\n')[0].Trim())" -ForegroundColor Cyan
+                } else {
+                    $mergedCards.Add($cloudCard) | Out-Null
+                    Write-Host "[Merge] Both edited — friend's card, cloud edit kept: $(($cloudCard -split '\r?\n')[0].Trim())" -ForegroundColor DarkCyan
+                }
+            }
         }
     } else {
-        # Card only in local (user's new card) — keep it
+        # Card only in local (new card user made) — keep it
         $mergedCards.Add($localCard) | Out-Null
     }
 }
@@ -169,11 +202,16 @@ $mergedContent = $header + ($mergedCards -join "")
 
 # -----------------------------------------------------------------------
 # Update last_known snapshot for this user (saved locally, gitignored)
+# Format: "time_created|sha256hash" — hash lets us detect future changes
 # -----------------------------------------------------------------------
-$knownTimes = foreach ($card in $mergedCards) {
-    if ($card -match "time_created: ([^\r\n]+)") { $matches[1].Trim() }
+$knownLines = foreach ($card in $mergedCards) {
+    if ($card -match "time_created: ([^\r\n]+)") {
+        $tc   = $matches[1].Trim()
+        $hash = Get-CardHash $card
+        "$tc|$hash"
+    }
 }
-Set-Content $lastKnownFile -Value ($knownTimes -join "`n") -Encoding UTF8
+Set-Content $lastKnownFile -Value ($knownLines -join "`n") -Encoding UTF8
 
 # -----------------------------------------------------------------------
 # Write updated tombstone (will be git-committed so all users see it)
