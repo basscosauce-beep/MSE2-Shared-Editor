@@ -2,7 +2,9 @@ $Host.UI.RawUI.WindowTitle = "Magic Set Editor - Manual Sync"
 
 # Auto-save MSE2 BEFORE killing it so unsaved cards are flushed to disk
 $mseProc = Get-Process "magicseteditor" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+$mseExePath = $null
 if ($mseProc) {
+    try { $mseExePath = $mseProc.MainModule.FileName } catch {}
     Write-Host "Auto-saving your cards..." -ForegroundColor Cyan
     Add-Type -AssemblyName Microsoft.VisualBasic
     Add-Type -AssemblyName System.Windows.Forms
@@ -178,5 +180,10 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 Write-Host "`nRelaunching Magic Set Editor..."
-Start-Process "wscript.exe" -ArgumentList "`"$repoDir\Launch_Silent.vbs`""
+$launchSet = if ($cloudSetFile) { $cloudSetFile.FullName } elseif ($setFile) { $setFile.FullName } else { $null }
+if ($mseExePath -and (Test-Path $mseExePath) -and $launchSet) {
+    Start-Process $mseExePath -ArgumentList "`"$launchSet`""
+} else {
+    Start-Process "wscript.exe" -ArgumentList "`"$repoDir\Launch_Silent.vbs`""
+}
 Start-Sleep -Seconds 2
