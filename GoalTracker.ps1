@@ -299,6 +299,7 @@ try {
     function AddRow($panel, $color, $category) {
         $key = "${color}_${category}"
         $isTypeCategory = ($types -contains $category)
+        $isMvCategory   = ($mvs   -contains $category)
         
         $grid = New-Object System.Windows.Controls.Grid
         $grid.Margin = "0,2,0,2"
@@ -354,8 +355,8 @@ try {
         $box.HorizontalAlignment = "Left"
         $box.VerticalAlignment = "Center"
         
-        # Read-only state
-        if ($color -eq "Total Set" -or ($color -ne "Baseline" -and -not $isTypeCategory)) {
+        # Read-only state: Total Set is always read-only; MV/Rarity on color tabs are read-only unless MV (which now acts like Types)
+        if ($color -eq "Total Set" -or ($color -ne "Baseline" -and -not $isTypeCategory -and -not $isMvCategory)) {
             $box.IsReadOnly = $true
             $box.Background = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#222")
             $box.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#888")
@@ -366,7 +367,7 @@ try {
         $goalBoxes[$key] = $box
 
         # Lock Button or Percent Label
-        if ($color -eq "Baseline" -and -not $isTypeCategory) {
+        if ($color -eq "Baseline" -and -not $isTypeCategory -and -not $isMvCategory) {
             $lblPct = New-Object System.Windows.Controls.TextBlock
             $lblPct.Text = "%"
             $lblPct.Foreground = "#888"
@@ -375,7 +376,7 @@ try {
             [System.Windows.Controls.Grid]::SetColumn($lblPct, 4)
             $grid.Children.Add($lblPct)
         }
-        elseif ($color -ne "Baseline" -and $color -ne "Total Set" -and $isTypeCategory) {
+        elseif ($color -ne "Baseline" -and $color -ne "Total Set" -and ($isTypeCategory -or $isMvCategory)) {
             $btnLock = New-Object System.Windows.Controls.Primitives.ToggleButton
             $btnLock.Width = 50
             $btnLock.Height = 22
@@ -463,7 +464,7 @@ try {
             }
         }
         
-        # 2. Read lock states and manually entered Type goals
+        # 2. Read lock states and manually entered Type AND MV goals
         foreach ($key in $lockBoxes.Keys) {
             $locks[$key] = $lockBoxes[$key].IsChecked
             $goals["${key}_Locked"] = $locks[$key]
@@ -473,6 +474,12 @@ try {
                 $val = 0
                 if ([int]::TryParse($goalBoxes["${c}_${t}"].Text, [ref]$val)) {
                     $goals["${c}_${t}"] = $val
+                }
+            }
+            foreach ($m in $mvs) {
+                $val = 0
+                if ([int]::TryParse($goalBoxes["${c}_${m}"].Text, [ref]$val)) {
+                    $goals["${c}_${m}"] = $val
                 }
             }
         }
@@ -496,11 +503,16 @@ try {
         }
 
         # 5. Apply Baseline Percentages to MV and Rarities for ALL colors based on their size
+        #    But skip MV rows that are locked (keep the manually entered value instead)
         foreach ($cat in ($mvs + $rarities)) {
             $pct = $baseline[$cat]
             foreach ($c in @("White", "Blue", "Black", "Red", "Green", "Colorless", "Multicolor")) {
-                $calc = [math]::Round($colorSizes[$c] * ($pct / 100))
-                $goals["${c}_${cat}"] = $calc
+                if ($mvs -contains $cat -and $locks["${c}_${cat}"]) {
+                    # Locked MV row: keep the value the user typed in
+                } else {
+                    $calc = [math]::Round($colorSizes[$c] * ($pct / 100))
+                    $goals["${c}_${cat}"] = $calc
+                }
             }
         }
 
