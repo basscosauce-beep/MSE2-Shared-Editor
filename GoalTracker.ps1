@@ -566,6 +566,194 @@ try {
         }
 
         $panel.Children.Add($summGrid) | Out-Null
+
+        # ── CARD RECOMMENDATION (Total Set tab only) ──────────────────────────
+        if ($c -eq "Total Set") {
+
+            $colorAccent = @{
+                "White"     = "#C8B87A"; "Blue" = "#1A6EC4"; "Black" = "#6A4C9C"
+                "Red"       = "#C0392B"; "Green" = "#27AE60"; "Colorless" = "#607D8B"
+                "Multicolor"= "#C0922A"
+            }
+            $colorEmoji = @{
+                "White"="☀"; "Blue"="💧"; "Black"="💀"; "Red"="🔥"; "Green"="🌿"; "Colorless"="⬡"; "Multicolor"="✦"
+            }
+            $typeDisplay = @{
+                "Creatures"="Creature"; "Enchantments"="Enchantment"
+                "Instants/Sorceries"="Instant / Sorcery"; "Artifacts"="Artifact"; "Lands"="Land"
+            }
+            $rarityColor = @{
+                "Common"="#AAA"; "Uncommon"="#62B5E5"; "Rare"="#D4AF37"; "Mythic Rare"="#E8751A"
+            }
+
+            # Weighted random pick — prefers the most-needed slots
+            function Invoke-WeightedPick {
+                param($keys, $weights)
+                $total = 0.0
+                foreach ($w in $weights) { $total += $w }
+                if ($total -le 0) { return $keys[0] }
+                $rand = (Get-Random -Minimum 0 -Maximum 10000) / 10000.0 * $total
+                $cum  = 0.0
+                for ($i = 0; $i -lt $keys.Count; $i++) {
+                    $cum += $weights[$i]
+                    if ($rand -le $cum) { return $keys[$i] }
+                }
+                return $keys[-1]
+            }
+
+            function Get-Recommendation {
+                $cols = @("White","Blue","Black","Red","Green","Colorless","Multicolor")
+                $colW = foreach ($col in $cols) {
+                    $g = 0; $a = 0
+                    foreach ($t in $types) { $g += [int]$goals["${col}_$t"]; $a += [int]$actuals["${col}_$t"] }
+                    [math]::Max(0, $g - $a)
+                }
+                $pickedColor = Invoke-WeightedPick $cols $colW
+
+                $typeW = foreach ($t in $types) { [math]::Max(0, [int]$goals["${pickedColor}_$t"] - [int]$actuals["${pickedColor}_$t"]) }
+                $pickedType = Invoke-WeightedPick $types $typeW
+
+                $mvW = foreach ($m in $mvs) { [math]::Max(0, [int]$goals["${pickedColor}_$m"] - [int]$actuals["${pickedColor}_$m"]) }
+                $pickedMv = Invoke-WeightedPick $mvs $mvW
+
+                $rarW = foreach ($r in $rarities) { [math]::Max(0, [int]$goals["${pickedColor}_$r"] - [int]$actuals["${pickedColor}_$r"]) }
+                $pickedRarity = Invoke-WeightedPick $rarities $rarW
+
+                $mvNum = $pickedMv -replace "MV ", ""
+                $need  = [math]::Max(0, [int]$goals["${pickedColor}_$pickedType"] - [int]$actuals["${pickedColor}_$pickedType"])
+
+                return @{
+                    Color=$pickedColor; Type=$pickedType; Mv=$mvNum; Rarity=$pickedRarity; Need=$need
+                }
+            }
+
+            # --- Build the widget UI ----------------------------------------
+            $recSection = New-Object System.Windows.Controls.Border
+            $recSection.Margin = "0,18,0,0"
+            $recSection.CornerRadius = "10"
+            $recSection.Background = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#1A1A2E")
+            $recSection.BorderThickness = "1"
+            $recSection.BorderBrush = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#333355")
+            $recSection.Padding = "16,14"
+
+            $recStack = New-Object System.Windows.Controls.StackPanel
+            $recSection.Child = $recStack
+
+            # Header row
+            $hdrRow = New-Object System.Windows.Controls.StackPanel
+            $hdrRow.Orientation = "Horizontal"
+            $hdrRow.Margin = "0,0,0,10"
+
+            $hdrIcon = New-Object System.Windows.Controls.TextBlock
+            $hdrIcon.Text = "💡"
+            $hdrIcon.FontSize = 14
+            $hdrIcon.VerticalAlignment = "Center"
+            $hdrIcon.Margin = "0,0,8,0"
+            $hdrRow.Children.Add($hdrIcon) | Out-Null
+
+            $hdrLbl = New-Object System.Windows.Controls.TextBlock
+            $hdrLbl.Text = "NEXT CARD TO MAKE"
+            $hdrLbl.FontSize = 11
+            $hdrLbl.FontWeight = "Bold"
+            $hdrLbl.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#8888BB")
+            $hdrLbl.VerticalAlignment = "Center"
+            $hdrRow.Children.Add($hdrLbl) | Out-Null
+            $recStack.Children.Add($hdrRow) | Out-Null
+
+            # Color accent stripe + main card display
+            $cardBorder = New-Object System.Windows.Controls.Border
+            $cardBorder.CornerRadius = "8"
+            $cardBorder.Padding = "14,12"
+            $cardBorder.Margin = "0,0,0,12"
+
+            $cardInner = New-Object System.Windows.Controls.StackPanel
+            $cardBorder.Child = $cardInner
+
+            # Emoji + main text row
+            $mainRow = New-Object System.Windows.Controls.StackPanel
+            $mainRow.Orientation = "Horizontal"
+            $mainRow.Margin = "0,0,0,6"
+
+            $emojiLbl = New-Object System.Windows.Controls.TextBlock
+            $emojiLbl.FontSize = 22
+            $emojiLbl.VerticalAlignment = "Center"
+            $emojiLbl.Margin = "0,0,10,0"
+            $mainRow.Children.Add($emojiLbl) | Out-Null
+
+            $mainTextStack = New-Object System.Windows.Controls.StackPanel
+            $mainRow.Children.Add($mainTextStack) | Out-Null
+
+            $mvLabel = New-Object System.Windows.Controls.TextBlock
+            $mvLabel.FontSize = 11
+            $mvLabel.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#999")
+
+            $cardTitle = New-Object System.Windows.Controls.TextBlock
+            $cardTitle.FontSize = 18
+            $cardTitle.FontWeight = "Bold"
+
+            $mainTextStack.Children.Add($mvLabel) | Out-Null
+            $mainTextStack.Children.Add($cardTitle) | Out-Null
+            $cardInner.Children.Add($mainRow) | Out-Null
+
+            # Rarity + need row
+            $subRow = New-Object System.Windows.Controls.StackPanel
+            $subRow.Orientation = "Horizontal"
+
+            $rarityLbl = New-Object System.Windows.Controls.TextBlock
+            $rarityLbl.FontSize = 11
+            $rarityLbl.FontWeight = "SemiBold"
+            $rarityLbl.Margin = "0,0,12,0"
+            $subRow.Children.Add($rarityLbl) | Out-Null
+
+            $needLbl = New-Object System.Windows.Controls.TextBlock
+            $needLbl.FontSize = 11
+            $needLbl.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#888")
+            $subRow.Children.Add($needLbl) | Out-Null
+            $cardInner.Children.Add($subRow) | Out-Null
+            $recStack.Children.Add($cardBorder) | Out-Null
+
+            # Shuffle button
+            $shuffleBtn = New-Object System.Windows.Controls.Button
+            $shuffleBtn.Content = "🔀  New Suggestion"
+            $shuffleBtn.FontSize = 11
+            $shuffleBtn.Padding = "12,6"
+            $shuffleBtn.HorizontalAlignment = "Right"
+            $shuffleBtn.Background = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#252545")
+            $shuffleBtn.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#AAAACC")
+            $shuffleBtn.BorderThickness = "1"
+            $shuffleBtn.BorderBrush = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#444466")
+            $recStack.Children.Add($shuffleBtn) | Out-Null
+
+            # Closure: compute & update the card display
+            $updateRec = {
+                $rec    = Get-Recommendation
+                $col    = $rec.Color
+                $accent = $colorAccent[$col]
+                $emoji  = $colorEmoji[$col]
+                $conv   = New-Object System.Windows.Media.BrushConverter
+
+                $cardBorder.Background   = $conv.ConvertFromString( ($accent + "22") )
+                $cardBorder.BorderThickness = "0,0,0,3"
+                $cardBorder.BorderBrush  = $conv.ConvertFromString($accent)
+
+                $emojiLbl.Text           = $emoji
+                $cardTitle.Text          = "$col $($typeDisplay[$rec.Type])"
+                $cardTitle.Foreground    = $conv.ConvertFromString($accent)
+
+                $mvTxt = if ($rec.Mv -eq "7+") { "7+ Mana" } elseif ($rec.Mv -eq "0") { "0 Mana (Free)" } else { "$($rec.Mv) Mana" }
+                $mvLabel.Text            = $mvTxt
+
+                $rarityLbl.Text          = $rec.Rarity
+                $rarityLbl.Foreground    = $conv.ConvertFromString($rarityColor[$rec.Rarity])
+
+                $needLbl.Text            = "· $($rec.Need) still needed"
+            }.GetNewClosure()
+
+            $shuffleBtn.add_Click($updateRec)
+            & $updateRec   # initial render
+
+            $panel.Children.Add($recSection) | Out-Null
+        }
     }
 
     $window.FindName("BtnSave").add_Click({
