@@ -316,7 +316,7 @@ $localKeywords = Get-KeywordMap $localContent
 $mergedKeywords = [ordered]@{}
 foreach ($kw in $cloudKeywords.Keys) { $mergedKeywords[$kw] = $cloudKeywords[$kw] }
 foreach ($kw in $localKeywords.Keys) {
-    if (-not $mergedKeywords.ContainsKey($kw)) {
+    if (-not $mergedKeywords.Contains($kw)) {
         $mergedKeywords[$kw] = $localKeywords[$kw]
         Write-Host "[Merge] New local keyword preserved: $kw" -ForegroundColor Cyan
     }
