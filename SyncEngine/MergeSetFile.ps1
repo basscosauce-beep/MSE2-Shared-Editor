@@ -77,6 +77,41 @@ function Get-CardName {
 }
 
 # ---------------------------------------------------------------------------
+# Helper: return everything before the first keyword: or card: block
+# (mse version, game, stylesheet, set info, etc.)
+# ---------------------------------------------------------------------------
+function Get-PreKeywordHeader {
+    param([string]$content)
+    if (-not $content) { return "" }
+    $kwIdx   = $content.IndexOf("`nkeyword:")
+    $cardIdx = $content.IndexOf("`ncard:")
+    $idx     = [int]::MaxValue
+    if ($kwIdx   -ge 0 -and $kwIdx   -lt $idx) { $idx = $kwIdx }
+    if ($cardIdx -ge 0 -and $cardIdx -lt $idx) { $idx = $cardIdx }
+    if ($idx -eq [int]::MaxValue) { return $content }
+    return $content.Substring(0, $idx + 1)
+}
+
+# ---------------------------------------------------------------------------
+# Helper: extract keyword blocks from set content as an ordered hashtable
+# keyed by the keyword name (the 'keyword: Name' field inside each block)
+# ---------------------------------------------------------------------------
+function Get-KeywordMap {
+    param([string]$content)
+    $map = [ordered]@{}
+    $content -split "(?m)^(?=keyword:)" | Where-Object { $_ -match "^keyword:" } | ForEach-Object {
+        $block = $_
+        if ($block -match "(?m)^\tkeyword:\s+(.+)") {
+            $map[$matches[1].Trim()] = $block
+        } else {
+            # Unnamed keyword block - use positional key
+            $map["_kw_$($map.Count)"] = $block
+        }
+    }
+    return $map
+}
+
+# ---------------------------------------------------------------------------
 # Helper: compute a 16-char SHA256 hash of card text for change detection
 # ---------------------------------------------------------------------------
 function Get-CardHash {
@@ -268,9 +303,34 @@ foreach ($tc in $cloudMap.Keys) {
 Write-Host "[Merge] Local: $($localMap.Count) | Friends new: $friendCount | Tombstoned: $($tombstone.Count)" -ForegroundColor Cyan
 
 # ===========================================================================
-# Rebuild set content: header + all merged cards
+# Rebuild set content: merged header + all merged cards
+# The header is: cloud's base metadata + union of keywords (cloud wins on
+# conflicts, local-only keywords are preserved)
 # ===========================================================================
-$header        = Get-SetHeader $localContent
+$cloudHeader   = Get-SetHeader $cloudContent
+$localHeader   = Get-SetHeader $localContent
+$cloudKeywords = Get-KeywordMap $cloudContent
+$localKeywords = Get-KeywordMap $localContent
+
+# Union: start with cloud keywords, then add local-only ones
+$mergedKeywords = [ordered]@{}
+foreach ($kw in $cloudKeywords.Keys) { $mergedKeywords[$kw] = $cloudKeywords[$kw] }
+foreach ($kw in $localKeywords.Keys) {
+    if (-not $mergedKeywords.ContainsKey($kw)) {
+        $mergedKeywords[$kw] = $localKeywords[$kw]
+        Write-Host "[Merge] New local keyword preserved: $kw" -ForegroundColor Cyan
+    }
+}
+if ($cloudKeywords.Count -ne $mergedKeywords.Count) {
+    Write-Host "[Merge] Keywords: $($cloudKeywords.Count) from cloud + $($mergedKeywords.Count - $cloudKeywords.Count) local-only" -ForegroundColor Cyan
+} else {
+    Write-Host "[Merge] Keywords: $($mergedKeywords.Count) (in sync)" -ForegroundColor DarkGray
+}
+
+# Base metadata (mse version, stylesheet, set info) comes from cloud
+$preHeader     = Get-PreKeywordHeader $cloudContent
+$keywordText   = ($mergedKeywords.Values | Where-Object { $_ }) -join ""
+$header        = $preHeader + $keywordText
 $mergedContent = $header + ($mergedCards -join "")
 
 # Save initial last_known hashes (SyncNow.ps1 overwrites this after FillCreators runs)
