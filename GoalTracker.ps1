@@ -982,8 +982,8 @@ card:
                     Copy-Item $tmpZip $setFile.FullName -Force
                     Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
 
-                    # 4. Relaunch MSE2 directly into the set (skips welcome screen)
-                    Start-Process $mseExePath -ArgumentList "`"$($setFile.FullName)`""
+                    # 4. Relaunch via VBS (preserves MenuAddon + sync engine) with set path to skip welcome screen
+                    Start-Process "wscript.exe" -ArgumentList "`"$appData\Launch_Silent.vbs`" `"$($setFile.FullName)`""
                     $launched = $true
 
                     [System.Windows.MessageBox]::Show(
@@ -993,7 +993,7 @@ card:
                     [System.Windows.MessageBox]::Show("Failed to add card: $($_.Exception.Message)", "Error", "OK", "Error")
                 } finally {
                     if (-not $launched) {
-                        Start-Process $mseExePath -ArgumentList "`"$($setFile.FullName)`""
+                        Start-Process "wscript.exe" -ArgumentList "`"$appData\Launch_Silent.vbs`" `"$($setFile.FullName)`""
                     }
                 }
             }.GetNewClosure()

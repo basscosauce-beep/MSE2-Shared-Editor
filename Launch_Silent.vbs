@@ -96,8 +96,13 @@ If objFSO.FileExists(strDir & "\MenuAddon.exe") Then
     objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs"" """ & strDir & "\GoalTracker.vbs"" """ & strDir & "\SyncEngine\SyncNow.vbs""", 0, False
 End If
 
-' ---- Launch MSE2 ----
-objShell.Run """" & strDir & "\MSE2\magicseteditor.exe""", 1, False
+' ---- Launch MSE2 (open set directly if path was passed as argument) ----
+Dim strSetArg
+strSetArg = ""
+If WScript.Arguments.Count > 0 Then
+    strSetArg = " """ & WScript.Arguments(0) & """"
+End If
+objShell.Run """" & strDir & "\MSE2\magicseteditor.exe""" & strSetArg, 1, False
 
 
 ' EOF

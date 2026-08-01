@@ -181,8 +181,8 @@ if ($LASTEXITCODE -eq 0) {
 
 Write-Host "`nRelaunching Magic Set Editor..."
 $launchSet = if ($cloudSetFile) { $cloudSetFile.FullName } elseif ($setFile) { $setFile.FullName } else { $null }
-if ($mseExePath -and (Test-Path $mseExePath) -and $launchSet) {
-    Start-Process $mseExePath -ArgumentList "`"$launchSet`""
+if ($launchSet) {
+    Start-Process "wscript.exe" -ArgumentList "`"$repoDir\Launch_Silent.vbs`" `"$launchSet`""
 } else {
     Start-Process "wscript.exe" -ArgumentList "`"$repoDir\Launch_Silent.vbs`""
 }
