@@ -1,0 +1,11 @@
+﻿card:
+	name: 
+	casting_cost: 2
+	super_type: Instant
+	sub_type: 
+	rarity: mythic rare
+	rule_text: 
+	time_created: 2026-08-01 03:53:18
+	time_modified: 2026-08-01 03:53:18
+	creator: Bass
+	has_styling: false
