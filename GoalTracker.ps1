@@ -424,6 +424,42 @@ try {
         AddSection $panel "MANA VALUE"
         foreach ($m in $mvs) { AddRow $panel $c $m }
 
+        # Baseline tab only: live "X / 100 remaining" counter under MV rows
+        if ($c -eq "Baseline") {
+            $mvTotalBlock = New-Object System.Windows.Controls.TextBlock
+            $mvTotalBlock.Margin = "0,4,0,8"
+            $mvTotalBlock.FontSize = 11
+            $mvTotalBlock.FontWeight = "Bold"
+
+            # Scriptblock that recalculates and repaints the counter
+            $refreshMvTotal = {
+                $tot = 0
+                foreach ($mKey in $mvs) {
+                    $v = 0
+                    if ([int]::TryParse($goalBoxes["Baseline_$mKey"].Text, [ref]$v)) { $tot += $v }
+                }
+                $avail = 100 - $tot
+                $conv  = New-Object System.Windows.Media.BrushConverter
+                if ($tot -gt 100) {
+                    $mvTotalBlock.Text       = "Total: $tot%  |  OVER by $(-$avail)%"
+                    $mvTotalBlock.Foreground = $conv.ConvertFromString("#F44336")
+                } elseif ($tot -eq 100) {
+                    $mvTotalBlock.Text       = "Total: 100%  |  Perfect!"
+                    $mvTotalBlock.Foreground = $conv.ConvertFromString("#4CAF50")
+                } else {
+                    $mvTotalBlock.Text       = "Total: $tot%  |  $avail% remaining"
+                    $mvTotalBlock.Foreground = $conv.ConvertFromString("#FFC107")
+                }
+            }.GetNewClosure()
+
+            # Wire up every MV Baseline box so the counter updates live while typing
+            foreach ($m in $mvs) { $goalBoxes["Baseline_$m"].add_TextChanged($refreshMvTotal) }
+
+            # Draw initial state
+            & $refreshMvTotal
+            $panel.Children.Add($mvTotalBlock) | Out-Null
+        }
+
         AddSection $panel "RARITY"
         foreach ($r in $rarities) { AddRow $panel $c $r }
 
