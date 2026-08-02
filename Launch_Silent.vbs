@@ -22,10 +22,13 @@ p1 = "ghp_2g4dOrh3klYwVMo6o"
 p2 = "FNfD8iUKfATTq3ezyS4"
 objShell.Run """" & strGit & """ -C """ & strDir & """ remote set-url origin https://basscosauce-beep:" & p1 & p2 & "@github.com/basscosauce-beep/MSE2-Shared-Editor.git", 0, True
 
-' ---- Git pull (silent, no-rebase) ----
+' ---- Git fetch (read-only: downloads remote info but NEVER overwrites local files) ----
+' git pull is DANGEROUS here: a fast-forward could overwrite the .mse-set and delete
+' cards that were created since the last sync. All .mse-set updates go through SyncNow.ps1
+' which uses the smart merge engine. Script/template updates are applied by SyncNow's
+' git reset --hard, so fetch is all we need here.
 objShell.Environment("PROCESS")("GIT_TERMINAL_PROMPT") = "0"
-objShell.Run """" & strGit & """ -C """ & strDir & """ config pull.rebase false", 0, True
-objShell.Run """" & strGit & """ -C """ & strDir & """ pull origin main", 0, True
+objShell.Run """" & strGit & """ -C """ & strDir & """ fetch origin", 0, True
 
 ' ---- First launch: ask for name/initials ----
 If Not objFSO.FileExists(strConfigFile) Then
