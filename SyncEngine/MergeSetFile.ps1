@@ -77,19 +77,20 @@ function Get-CardName {
 }
 
 # ---------------------------------------------------------------------------
-# Helper: return everything before the first keyword: or card: block
-# (mse version, game, stylesheet, set info, etc.)
+# Helper: return the pre-card header with its own keyword blocks deduplicated.
+# Uses the header string itself (NOT the full content) to find the boundary,
+# so the metadata section is never confused with content from after the first card:.
 # ---------------------------------------------------------------------------
-function Get-PreKeywordHeader {
-    param([string]$content)
-    if (-not $content) { return "" }
-    $kwIdx   = $content.IndexOf("`nkeyword:")
-    $cardIdx = $content.IndexOf("`ncard:")
-    $idx     = [int]::MaxValue
-    if ($kwIdx   -ge 0 -and $kwIdx   -lt $idx) { $idx = $kwIdx }
-    if ($cardIdx -ge 0 -and $cardIdx -lt $idx) { $idx = $cardIdx }
-    if ($idx -eq [int]::MaxValue) { return $content }
-    return $content.Substring(0, $idx + 1)
+function Get-DedupedHeader {
+    param([string]$header)
+    if (-not $header) { return "" }
+    $kwIdx = $header.IndexOf("`nkeyword:")
+    if ($kwIdx -lt 0) { return $header }   # no keywords in header - return as-is
+    $preMeta     = $header.Substring(0, $kwIdx + 1)  # metadata before first keyword:
+    $kwSection   = $header.Substring($kwIdx + 1)     # everything from keyword: onwards
+    $kwMap       = Get-KeywordMap $kwSection
+    $dedupedKws  = ($kwMap.Values | Where-Object { $_ }) -join ""
+    return $preMeta + $dedupedKws
 }
 
 # ---------------------------------------------------------------------------
@@ -304,34 +305,35 @@ Write-Host "[Merge] Local: $($localMap.Count) | Friends new: $friendCount | Tomb
 
 # ===========================================================================
 # Rebuild set content: merged header + all merged cards
-# The header is: cloud's base metadata + union of keywords (cloud wins on
-# conflicts, local-only keywords are preserved)
+#
+# Strategy: use the cloud's pre-card header VERBATIM as the base (after
+# deduplicating any existing keyword corruption). Then append any keyword
+# blocks that exist ONLY in local. Finally append merged cards.
+#
+# Why verbatim? Previous approach split into (preHeader + keywordText) and
+# rejoined them. If the two boundary searches (IndexOf on full content vs
+# on the extracted header) differed by even one block, the keyword region
+# appeared in BOTH parts and was written twice. Using the cloud header
+# directly makes double-writing structurally impossible.
 # ===========================================================================
-$cloudHeader   = Get-SetHeader $cloudContent
+$cloudHeader   = Get-DedupedHeader (Get-SetHeader $cloudContent)   # verbatim + healed
 $localHeader   = Get-SetHeader $localContent
-$cloudKeywords = Get-KeywordMap $cloudHeader   # header only: prevents last kw block absorbing cards
-$localKeywords = Get-KeywordMap $localHeader   # header only: same reason
+$cloudKeywords = Get-KeywordMap $cloudHeader
+$localKeywords = Get-KeywordMap $localHeader
 
-# Union: start with cloud keywords, then add local-only ones
-$mergedKeywords = [ordered]@{}
-foreach ($kw in $cloudKeywords.Keys) { $mergedKeywords[$kw] = $cloudKeywords[$kw] }
+# Collect local-only keyword blocks (new keywords the user added)
+$localOnlyKwText = ""
 foreach ($kw in $localKeywords.Keys) {
-    if (-not $mergedKeywords.Contains($kw)) {
-        $mergedKeywords[$kw] = $localKeywords[$kw]
+    if (-not $cloudKeywords.Contains($kw)) {
+        $localOnlyKwText += $localKeywords[$kw]
         Write-Host "[Merge] New local keyword preserved: $kw" -ForegroundColor Cyan
     }
 }
-if ($cloudKeywords.Count -ne $mergedKeywords.Count) {
-    Write-Host "[Merge] Keywords: $($cloudKeywords.Count) from cloud + $($mergedKeywords.Count - $cloudKeywords.Count) local-only" -ForegroundColor Cyan
-} else {
-    Write-Host "[Merge] Keywords: $($mergedKeywords.Count) (in sync)" -ForegroundColor DarkGray
-}
+$totalKw = $cloudKeywords.Count + ($localKeywords.Keys | Where-Object { -not $cloudKeywords.Contains($_) }).Count
+Write-Host "[Merge] Keywords: $($cloudKeywords.Count) cloud + $($totalKw - $cloudKeywords.Count) local-only = $totalKw total" -ForegroundColor DarkGray
 
-# Base metadata (mse version, stylesheet, set info) comes from cloud
-$preHeader     = Get-PreKeywordHeader $cloudContent
-$keywordText   = ($mergedKeywords.Values | Where-Object { $_ }) -join ""
-$header        = $preHeader + $keywordText
-$mergedContent = $header + ($mergedCards -join "")
+# Assembled content: cloud header (verbatim) + local-only keywords + merged cards
+$mergedContent = $cloudHeader + $localOnlyKwText + ($mergedCards -join "")
 
 # Save initial last_known hashes (SyncNow.ps1 overwrites this after FillCreators runs)
 Save-LastKnown -SetFilePath $CloudFile -KnownFile $lastKnownFile
