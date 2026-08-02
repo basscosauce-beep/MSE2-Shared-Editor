@@ -1,0 +1,6 @@
+# .mse-set files are binary ZIP archives. Git cannot meaningfully merge them.
+# All card-level merging is handled by MergeSetFile.ps1 via SyncNow.ps1.
+# On any git-level conflict (e.g. git pull in Launch_Silent.vbs), keep the
+# LOCAL version so cards created between syncs are never silently overwritten.
+Shared-Set/*.mse-set binary
+Shared-Set/*.mse-set merge=ours

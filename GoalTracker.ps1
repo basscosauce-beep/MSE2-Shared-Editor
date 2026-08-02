@@ -1012,9 +1012,20 @@ card:
                     Copy-Item $tmpZip $setFile.FullName -Force
                     Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
 
+                    # Commit the card locally BEFORE launching VBS.
+                    # The VBS does "git pull" which would overwrite the .mse-set if the
+                    # remote has newer commits. Committing first makes this a proper merge
+                    # (not a fast-forward), and .gitattributes merge=ours keeps our version.
+                    try {
+                        $gitExe = "$appData\mingit\cmd\git.exe"
+                        & $gitExe -C $appData add "Shared-Set/" 2>$null | Out-Null
+                        & $gitExe -C $appData commit -m "Card added: $manaCost $superType ($rarStr) by $creator" 2>$null | Out-Null
+                    } catch {}
+
                     # 4. Relaunch via VBS (preserves MenuAddon + sync engine) with set path to skip welcome screen
                     Start-Process "wscript.exe" -ArgumentList "`"$appData\Launch_Silent.vbs`" `"$($setFile.FullName)`""
                     $launched = $true
+
 
                     [System.Windows.MessageBox]::Show(
                         "Card added!`n`n$manaCost $superType ($rarStr) - by $creator`n`nMSE2 is reopening with your new card ready to edit.",
