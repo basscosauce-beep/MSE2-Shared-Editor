@@ -200,16 +200,43 @@ if (Test-Path $lastKnownFile) {
 $localMap = Get-CardMap $localContent
 $cloudMap = Get-CardMap $cloudContent
 
+Write-Host "[Merge] Cards found - Local backup: $($localMap.Count) | Cloud: $($cloudMap.Count) | Last-known: $($lastKnown.Count)" -ForegroundColor DarkGray
+
+# ===========================================================================
+# SAFETY CHECK 1: If the local backup looks completely wrong
+# (0 cards while we know the user had cards), skip tombstoning entirely.
+# A legitimate 0-card backup could only happen on a brand-new set.
+# This prevents a bad backup from tombstoning the entire set.
+# ===========================================================================
+$skipTombstone = $false
+if ($localMap.Count -eq 0 -and $lastKnown.Count -ge 3) {
+    Write-Host "[Merge] SAFETY: Local backup has 0 cards but $($lastKnown.Count) were expected. Tombstone skipped to prevent mass deletion." -ForegroundColor Red
+    Write-Host "[Merge] SAFETY: If you intentionally deleted all cards, run a second sync." -ForegroundColor Red
+    $skipTombstone = $true
+}
+
+# Also block if we would tombstone more than half the known cards in one sync.
+# Single-card deletions are common; losing >50% at once is almost certainly a bug.
+if (-not $skipTombstone -and $lastKnown.Count -ge 6) {
+    $wouldTombstone = ($lastKnown | Where-Object { -not $localMap.Contains($_) }).Count
+    if ($wouldTombstone -gt [math]::Floor($lastKnown.Count * 0.5)) {
+        Write-Host "[Merge] SAFETY: Would tombstone $wouldTombstone/$($lastKnown.Count) cards in one sync. Tombstone skipped." -ForegroundColor Red
+        $skipTombstone = $true
+    }
+}
+
 # ===========================================================================
 # Detect newly deleted cards
 # A card is "newly deleted" if the user had it at last sync but not now.
 # ===========================================================================
 $newTombstones = 0
-foreach ($tc in $lastKnown) {
-    if (-not $localMap.Contains($tc)) {
-        if ($tombstone.Add($tc)) {
-            $newTombstones++
-            Write-Host "[Merge] Card permanently deleted: $tc" -ForegroundColor Yellow
+if (-not $skipTombstone) {
+    foreach ($tc in $lastKnown) {
+        if (-not $localMap.Contains($tc)) {
+            if ($tombstone.Add($tc)) {
+                $newTombstones++
+                Write-Host "[Merge] Card permanently deleted: $tc" -ForegroundColor Yellow
+            }
         }
     }
 }
@@ -335,10 +362,31 @@ Write-Host "[Merge] Keywords: $($cloudKeywords.Count) cloud + $($totalKw - $clou
 # Assembled content: cloud header (verbatim) + local-only keywords + merged cards
 $mergedContent = $cloudHeader + $localOnlyKwText + ($mergedCards -join "")
 
+# ===========================================================================
+# SAFETY CHECK 2: Never write an empty set when the cloud had cards.
+# If every card was somehow stripped from the merge result, abort here.
+# The cloud file is left exactly as-is so cards are not destroyed.
+# ===========================================================================
+$cloudCardCount = $cloudMap.Count
+$mergedCardCount = $mergedCards.Count
+if ($mergedCardCount -eq 0 -and ($cloudCardCount -gt 0 -or $lastKnown.Count -gt 0)) {
+    Write-Host "" -ForegroundColor Red
+    Write-Host "============================================================" -ForegroundColor Red
+    Write-Host " SAFETY ABORT: Merge would delete ALL $cloudCardCount cards!" -ForegroundColor Red
+    Write-Host " Cloud file left unchanged. Please sync again or run" -ForegroundColor Red
+    Write-Host " RecoverSet.ps1 if cards are missing from the cloud." -ForegroundColor Red
+    Write-Host "============================================================" -ForegroundColor Red
+    Write-Host "" -ForegroundColor Red
+    return
+}
+
+Write-Host "[Merge] Merged result: $mergedCardCount cards." -ForegroundColor DarkGray
+
 # Save initial last_known hashes (SyncNow.ps1 overwrites this after FillCreators runs)
 Save-LastKnown -SetFilePath $CloudFile -KnownFile $lastKnownFile
 
 # Write updated tombstone (git-committed so all users see it)
+# Note: if skipTombstone fired, the tombstone set is unchanged from what was read from disk
 Set-Content $tombstoneFile -Value (($tombstone | Sort-Object) -join "`n") -Encoding UTF8
 
 # ===========================================================================
