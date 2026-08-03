@@ -333,18 +333,32 @@ Write-Host "[Merge] Local: $($localMap.Count) | Friends new: $friendCount | Tomb
 # ===========================================================================
 # Rebuild set content: merged header + all merged cards
 #
-# Strategy: the cloud's pre-card header is always the authoritative source
-# for keywords. Local keyword blocks are intentionally NOT merged in — this
-# prevents legacy duplicate keywords (created by old bugs) from re-uploading
-# to the cloud on each sync. The cloud is already clean (0 keyword blocks).
-# If you want to add a keyword to the shared set, add it in MSE2 and sync;
-# the header will be committed verbatim on that push.
+# Strategy: use the cloud's pre-card header as the base (deduplicated).
+# Then append any keyword blocks from the local header that do not exist
+# in the cloud header.
+#
+# (The massive keyword duplication bug was caused by Get-CardMap attaching
+# trailing keyword blocks to the last card. Now that Get-CardMap trims those,
+# merging local-only keywords from the header is safe again.)
 # ===========================================================================
-$cloudHeader = Get-DedupedHeader (Get-SetHeader $cloudContent)  # verbatim + healed
-Write-Host "[Merge] Keywords in cloud header: $((Get-KeywordMap $cloudHeader).Count)" -ForegroundColor DarkGray
+$cloudHeader   = Get-DedupedHeader (Get-SetHeader $cloudContent)
+$localHeader   = Get-DedupedHeader (Get-SetHeader $localContent)
+$cloudKeywords = Get-KeywordMap $cloudHeader
+$localKeywords = Get-KeywordMap $localHeader
 
-# Assembled content: cloud header (verbatim, cloud always wins on keywords) + merged cards
-$mergedContent = $cloudHeader + ($mergedCards -join "")
+# Collect local-only keyword blocks (new keywords the user added)
+$localOnlyKwText = ""
+foreach ($kw in $localKeywords.Keys) {
+    if (-not $cloudKeywords.Contains($kw)) {
+        $localOnlyKwText += $localKeywords[$kw]
+        Write-Host "[Merge] New local keyword preserved: $kw" -ForegroundColor Cyan
+    }
+}
+$totalKw = $cloudKeywords.Count + ($localKeywords.Keys | Where-Object { -not $cloudKeywords.Contains($_) }).Count
+Write-Host "[Merge] Keywords: $($cloudKeywords.Count) cloud + $($totalKw - $cloudKeywords.Count) local-only = $totalKw total" -ForegroundColor DarkGray
+
+# Assembled content: cloud header + local-only keywords + merged cards
+$mergedContent = $cloudHeader + $localOnlyKwText + ($mergedCards -join "")
 
 # ===========================================================================
 # SAFETY CHECK 2: Never write an empty set when the cloud had cards.
