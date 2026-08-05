@@ -40,9 +40,10 @@ function Get-CardMap {
     $map = New-Object System.Collections.Specialized.OrderedDictionary
     if (-not $content) { return $map }
     $content -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
-        # Strip any trailing keyword: blocks that may be attached to the card
-        # (happens when keyword blocks appear at the end of the file after all cards).
-        $cardBlock = ($_ -split "(?m)^(?=keyword:)")[0]
+        # Strip any trailing keyword:/version_control:/apprentice_code: blocks.
+        # MSE2 writes these at the very end of the file after all cards.
+        # Without this, the last card carries them into the merge output.
+        $cardBlock = ($_ -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
         if ($cardBlock -match "time_created: ([^\r\n]+)") {
             $map[$matches[1].Trim()] = $cardBlock
         }
@@ -336,32 +337,48 @@ Write-Host "[Merge] Local: $($localMap.Count) | Friends new: $friendCount | Tomb
 # ===========================================================================
 # Rebuild set content: merged header + all merged cards
 #
-# Strategy: use the cloud's pre-card header as the base (deduplicated).
-# Then append any keyword blocks from the local header that do not exist
-# in the cloud header.
-#
-# (The massive keyword duplication bug was caused by Get-CardMap attaching
-# trailing keyword blocks to the last card. Now that Get-CardMap trims those,
-# merging local-only keywords from the header is safe again.)
+# Keyword strategy: LOCAL-WINS merge.
+#   - Start with cloud keywords as the base
+#   - If local has a keyword with the same name, LOCAL version wins
+#     (so user edits to reminder text etc. are preserved)
+#   - If local has a keyword not in cloud, it's added (new keyword)
+#   - Cloud-only keywords are kept as-is
 # ===========================================================================
 $cloudHeader   = Get-DedupedHeader (Get-SetHeader $cloudContent)
 $localHeader   = Get-DedupedHeader (Get-SetHeader $localContent)
 $cloudKeywords = Get-KeywordMap $cloudHeader
 $localKeywords = Get-KeywordMap $localHeader
 
-# Collect local-only keyword blocks (new keywords the user added)
-$localOnlyKwText = ""
+# Build final keyword set: start with cloud, overlay local
+$finalKeywords = [ordered]@{}
+foreach ($kw in $cloudKeywords.Keys) {
+    $finalKeywords[$kw] = $cloudKeywords[$kw]
+}
 foreach ($kw in $localKeywords.Keys) {
-    if (-not $cloudKeywords.Contains($kw)) {
-        $localOnlyKwText += $localKeywords[$kw]
+    if ($finalKeywords.Contains($kw)) {
+        # Local version wins (preserves user edits to reminder text etc.)
+        $finalKeywords[$kw] = $localKeywords[$kw]
+    } else {
+        # New local keyword
+        $finalKeywords[$kw] = $localKeywords[$kw]
         Write-Host "[Merge] New local keyword preserved: $kw" -ForegroundColor Cyan
     }
 }
-$totalKw = $cloudKeywords.Count + ($localKeywords.Keys | Where-Object { -not $cloudKeywords.Contains($_) }).Count
-Write-Host "[Merge] Keywords: $($cloudKeywords.Count) cloud + $($totalKw - $cloudKeywords.Count) local-only = $totalKw total" -ForegroundColor DarkGray
+Write-Host "[Merge] Keywords: $($finalKeywords.Count) total ($($cloudKeywords.Count) cloud, $($localKeywords.Count) local)" -ForegroundColor DarkGray
 
-# Assembled content: cloud header + local-only keywords + merged cards
-$mergedContent = $cloudHeader + $localOnlyKwText + ($mergedCards -join "")
+# Build the pre-card header WITHOUT any keywords, then append merged keywords
+$cloudHeaderNoKw = ($cloudHeader -split "(?m)^(?=keyword:)")[0]
+$mergedKwText = ($finalKeywords.Values | Where-Object { $_ }) -join ""
+
+# Assemble merged cards text, then do a FINAL sanitization pass:
+# Strip any keyword:/version_control:/apprentice_code: blocks that leaked
+# into the card section. This is the nuclear defence against duplication -
+# no matter what the inputs look like, the output is always clean.
+$rawCardText = $mergedCards -join ""
+$cleanParts = $rawCardText -split "(?m)^(?=keyword:|version_control:|apprentice_code:)"
+$cleanCardText = ($cleanParts | Where-Object { $_ -ne "" -and $_ -notmatch "^(keyword|version_control|apprentice_code):" }) -join ""
+
+$mergedContent = $cloudHeaderNoKw + $mergedKwText + $cleanCardText
 
 # ===========================================================================
 # SAFETY CHECK 2: Never write an empty set when the cloud had cards.
