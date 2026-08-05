@@ -232,15 +232,46 @@ if (-not $skipTombstone -and $lastKnown.Count -ge 6) {
 # ===========================================================================
 # Detect newly deleted cards
 # A card is "newly deleted" if the user had it at last sync but not now.
+# ASK the user before permanently tombstoning each one.
 # ===========================================================================
 $newTombstones = 0
 if (-not $skipTombstone) {
+    $candidatesForDeletion = @()
     foreach ($tc in $lastKnown) {
         if (-not $localMap.Contains($tc)) {
-            if ($tombstone.Add($tc)) {
-                $newTombstones++
-                Write-Host "[Merge] Card permanently deleted: $tc" -ForegroundColor Yellow
+            $candidatesForDeletion += $tc
+        }
+    }
+
+    if ($candidatesForDeletion.Count -gt 0) {
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Yellow
+        Write-Host " $($candidatesForDeletion.Count) card(s) appear to have been deleted." -ForegroundColor Yellow
+        Write-Host "============================================================" -ForegroundColor Yellow
+        Write-Host ""
+
+        foreach ($tc in $candidatesForDeletion) {
+            # Try to find the card name from the cloud version
+            $cardName = $tc
+            if ($cloudMap.Contains($tc)) {
+                $cBlock = $cloudMap[$tc]
+                if ($cBlock -match "(?m)^\tname:\s*(.+)") {
+                    $n = $matches[1].Trim()
+                    if ($n) { $cardName = $n }
+                }
             }
+
+            Write-Host "  Card: '$cardName' (created: $tc)" -ForegroundColor White
+            $answer = Read-Host "  Permanently delete this card for everyone? (y/N)"
+            if ($answer -match "^[Yy]") {
+                if ($tombstone.Add($tc)) {
+                    $newTombstones++
+                    Write-Host "  -> Permanently deleted." -ForegroundColor Red
+                }
+            } else {
+                Write-Host "  -> Kept (will be restored from cloud)." -ForegroundColor Green
+            }
+            Write-Host ""
         }
     }
 }
