@@ -1012,14 +1012,47 @@ card:
                     Copy-Item $tmpZip $setFile.FullName -Force
                     Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
 
-                    # Commit the card locally BEFORE launching VBS.
-                    # The VBS does "git pull" which would overwrite the .mse-set if the
-                    # remote has newer commits. Committing first makes this a proper merge
-                    # (not a fast-forward), and .gitattributes merge=ours keeps our version.
+                    # Commit and PUSH the card to the cloud immediately.
+                    # Without pushing, git reset --hard origin/main in SyncNow
+                    # would destroy the unpushed local commit and lose the card.
                     try {
                         $gitExe = "$appData\mingit\cmd\git.exe"
+                        $credBypassGT = @("-c", "credential.helper=")
+                        # Fetch latest and rebase to avoid push rejection
+                        & $gitExe -C $appData @credBypassGT fetch origin 2>$null | Out-Null
+                        & $gitExe -C $appData reset --hard origin/main 2>$null | Out-Null
+                    } catch {}
+
+                    # Re-read the cloud file and append the card (so we don't lose friend's changes)
+                    try {
+                        $srcZip2 = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
+                        $srcEnt2 = $srcZip2.Entries | Where-Object { $_.Name -eq "set" }
+                        $sr3 = New-Object System.IO.StreamReader($srcEnt2.Open(), [System.Text.Encoding]::UTF8)
+                        $cloudTxt = $sr3.ReadToEnd(); $sr3.Dispose(); $srcZip2.Dispose()
+
+                        $cloudPlusCard = $cloudTxt.TrimEnd() + "`n" + $cardBlock + "`n"
+
+                        $tmpZip2 = [System.IO.Path]::GetTempFileName() + ".mse-set"
+                        $srcZip3 = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
+                        $dstZip2 = [System.IO.Compression.ZipFile]::Open($tmpZip2, [System.IO.Compression.ZipArchiveMode]::Create)
+                        $dstEnt2 = $dstZip2.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
+                        $ds2 = $dstEnt2.Open()
+                        $dwr2 = New-Object System.IO.StreamWriter($ds2, [System.Text.Encoding]::UTF8)
+                        $dwr2.Write($cloudPlusCard); $dwr2.Flush(); $dwr2.Dispose()
+                        foreach ($imgEnt2 in ($srcZip3.Entries | Where-Object { $_.Name -ne "set" })) {
+                            $dImg2 = $dstZip2.CreateEntry($imgEnt2.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+                            $si2 = $imgEnt2.Open(); $di2 = $dImg2.Open()
+                            $si2.CopyTo($di2); $si2.Dispose(); $di2.Dispose()
+                        }
+                        $srcZip3.Dispose(); $dstZip2.Dispose()
+                        Copy-Item $tmpZip2 $setFile.FullName -Force
+                        Remove-Item $tmpZip2 -Force -ErrorAction SilentlyContinue
+                    } catch {}
+
+                    try {
                         & $gitExe -C $appData add "Shared-Set/" 2>$null | Out-Null
                         & $gitExe -C $appData commit -m "Card added: $manaCost $superType ($rarStr) by $creator" 2>$null | Out-Null
+                        & $gitExe -C $appData @credBypassGT push origin main 2>$null | Out-Null
                     } catch {}
 
                     # 4. Relaunch via VBS (preserves MenuAddon + sync engine) with set path to skip welcome screen
