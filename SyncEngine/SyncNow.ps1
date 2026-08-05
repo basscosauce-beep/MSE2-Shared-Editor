@@ -1,20 +1,72 @@
 $Host.UI.RawUI.WindowTitle = "Magic Set Editor - Manual Sync"
 
-# Auto-save MSE2 BEFORE killing it so unsaved cards are flushed to disk
+# ---------------------------------------------------------------------------
+# Auto-save MSE2 BEFORE killing it so unsaved cards are flushed to disk.
+# This is critical: if MSE2 hasn't saved, any new cards exist only in memory
+# and will be lost when we kill the process.
+# ---------------------------------------------------------------------------
 $mseProc = Get-Process "magicseteditor" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
 $mseExePath = $null
+
+$gitCmd = "$PSScriptRoot\..\mingit\cmd\git.exe"
+$env:GIT_TERMINAL_PROMPT = "0"
+$env:GIT_ASKPASS = "echo"
+$repoDir = (Resolve-Path "$PSScriptRoot\..").Path
+
+# Record set file timestamp BEFORE save so we can verify it changed
+$setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
+$preTimestamp = $null
+if ($setFile) { $preTimestamp = $setFile.LastWriteTime }
+
 if ($mseProc) {
     try { $mseExePath = $mseProc.MainModule.FileName } catch {}
     Write-Host "Auto-saving your cards..." -ForegroundColor Cyan
     Add-Type -AssemblyName Microsoft.VisualBasic
     Add-Type -AssemblyName System.Windows.Forms
+
+    # Try to bring MSE2 to foreground (multiple methods for reliability)
+    $focused = $false
     try {
         [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id)
-        Start-Sleep -Milliseconds 1000
+        $focused = $true
+    } catch {}
+
+    if (-not $focused) {
+        try {
+            # Fallback: use window title
+            [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.MainWindowTitle)
+            $focused = $true
+        } catch {}
+    }
+
+    if ($focused) {
+        Start-Sleep -Milliseconds 500
+        # Send Ctrl+S twice for reliability
         [System.Windows.Forms.SendKeys]::SendWait("^s")
-        Start-Sleep -Milliseconds 2500  # Wait for file write to finish
-    } catch {
-        Write-Host "Warning: Auto-save failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Start-Sleep -Milliseconds 1500
+        [System.Windows.Forms.SendKeys]::SendWait("^s")
+        Start-Sleep -Milliseconds 1500
+
+        # Wait up to 10 seconds for the file to actually be written
+        $saveVerified = $false
+        for ($wait = 0; $wait -lt 10; $wait++) {
+            $setFile.Refresh()
+            if ($preTimestamp -and $setFile.LastWriteTime -gt $preTimestamp) {
+                $saveVerified = $true
+                Write-Host "Save verified (file updated on disk)." -ForegroundColor Green
+                break
+            }
+            Start-Sleep -Milliseconds 1000
+        }
+        if (-not $saveVerified) {
+            Write-Host "Warning: Could not verify save completed. Cards may not have been saved." -ForegroundColor Yellow
+            Write-Host "         If you just made new cards, press Ctrl+C now, save manually in MSE2, then sync again." -ForegroundColor Yellow
+            Start-Sleep -Seconds 3
+        }
+    } else {
+        Write-Host "Warning: Could not bring MSE2 to foreground for auto-save." -ForegroundColor Yellow
+        Write-Host "         If you just made new cards, press Ctrl+C now, save manually in MSE2, then sync again." -ForegroundColor Yellow
+        Start-Sleep -Seconds 3
     }
 }
 
@@ -25,11 +77,6 @@ Stop-Process -Name "MenuAddon" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 
 Write-Host "Syncing with cloud..." -ForegroundColor Cyan
-
-$gitCmd = "$PSScriptRoot\..\mingit\cmd\git.exe"
-$env:GIT_TERMINAL_PROMPT = "0"
-$env:GIT_ASKPASS = "echo"
-$repoDir = (Resolve-Path "$PSScriptRoot\..").Path
 
 $p1 = "ghp_2g4dOrh3klYwVMo6o"
 $p2 = "FNfD8iUKfATTq3ezyS4"
@@ -64,8 +111,8 @@ if ($branch -ne "main") {
 
 
 # ---------------------------------------------------------------
-# STEP 1: Back up the local set file BEFORE touching git at all
-# This captures any cards the user just made and saved in MSE2
+# STEP 1: Back up the local set file AFTER MSE2 is closed
+# This guarantees file locks are released and disk writes are complete.
 # ---------------------------------------------------------------
 $setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
 $localBackupPath = $null
