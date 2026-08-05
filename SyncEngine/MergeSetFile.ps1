@@ -40,8 +40,11 @@ function Get-CardMap {
     $map = New-Object System.Collections.Specialized.OrderedDictionary
     if (-not $content) { return $map }
     $content -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
-        if ($_ -match "time_created: ([^\r\n]+)") {
-            $map[$matches[1].Trim()] = $_
+        # Strip any trailing keyword: blocks that may be attached to the card
+        # (happens when keyword blocks appear at the end of the file after all cards).
+        $cardBlock = ($_ -split "(?m)^(?=keyword:)")[0]
+        if ($cardBlock -match "time_created: ([^\r\n]+)") {
+            $map[$matches[1].Trim()] = $cardBlock
         }
     }
     return $map
