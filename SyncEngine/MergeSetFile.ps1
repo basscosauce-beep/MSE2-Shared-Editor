@@ -476,8 +476,12 @@ try {
 
     $written = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
 
-    # Local images first (user's own cards - most up-to-date)
-    foreach ($entry in ($localZip.Entries | Where-Object { $_.Name -ne "set" })) {
+    # CLOUD images first - these are the authoritative source.
+    # Image filenames (image1.png, image2.png...) are tied to card positions in
+    # the set file. The cloud is the shared truth, so cloud images always win.
+    # If we took local images first, a local image1.png (pointing to a different
+    # card slot) would overwrite the cloud's image1.png and swap art between cards.
+    foreach ($entry in ($cloudZip.Entries | Where-Object { $_.Name -ne "set" })) {
         $dst = $dstZip.CreateEntry($entry.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
         $s = $entry.Open()
         $d = $dst.Open()
@@ -487,8 +491,9 @@ try {
         $written.Add($entry.FullName) | Out-Null
     }
 
-    # Cloud images for friend's cards not already covered
-    foreach ($entry in ($cloudZip.Entries | Where-Object { $_.Name -ne "set" })) {
+    # Local images only for filenames NOT in the cloud (brand-new cards the user
+    # just created that haven't been pushed to cloud yet).
+    foreach ($entry in ($localZip.Entries | Where-Object { $_.Name -ne "set" })) {
         if (-not $written.Contains($entry.FullName)) {
             $dst = $dstZip.CreateEntry($entry.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
             $s = $entry.Open()
