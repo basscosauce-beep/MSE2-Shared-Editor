@@ -41,15 +41,17 @@ if ($mseProc) {
 
     if ($focused) {
         Start-Sleep -Milliseconds 500
-        # Send Ctrl+S twice for reliability
+        # Send Ctrl+S three times with pauses for reliability
         [System.Windows.Forms.SendKeys]::SendWait("^s")
-        Start-Sleep -Milliseconds 1500
+        Start-Sleep -Milliseconds 2000
         [System.Windows.Forms.SendKeys]::SendWait("^s")
-        Start-Sleep -Milliseconds 1500
+        Start-Sleep -Milliseconds 2000
+        [System.Windows.Forms.SendKeys]::SendWait("^s")
+        Start-Sleep -Milliseconds 2000
 
-        # Wait up to 10 seconds for the file to actually be written
+        # Wait up to 15 seconds for the file to actually be written
         $saveVerified = $false
-        for ($wait = 0; $wait -lt 10; $wait++) {
+        for ($wait = 0; $wait -lt 15; $wait++) {
             $setFile.Refresh()
             if ($preTimestamp -and $setFile.LastWriteTime -gt $preTimestamp) {
                 $saveVerified = $true
@@ -59,14 +61,28 @@ if ($mseProc) {
             Start-Sleep -Milliseconds 1000
         }
         if (-not $saveVerified) {
-            Write-Host "Warning: Could not verify save completed. Cards may not have been saved." -ForegroundColor Yellow
-            Write-Host "         If you just made new cards, press Ctrl+C now, save manually in MSE2, then sync again." -ForegroundColor Yellow
-            Start-Sleep -Seconds 3
+            Write-Host "" -ForegroundColor Yellow
+            Write-Host "=========================================================" -ForegroundColor Yellow
+            Write-Host " WARNING: Could not verify MSE2 saved to disk." -ForegroundColor Yellow
+            Write-Host " New cards AND keyword edits may not be saved!" -ForegroundColor Yellow
+            Write-Host "" -ForegroundColor Yellow
+            Write-Host " Press Ctrl+C NOW to cancel, save manually in MSE2" -ForegroundColor Yellow
+            Write-Host " (File > Save or Ctrl+S), then sync again." -ForegroundColor Yellow
+            Write-Host "=========================================================" -ForegroundColor Yellow
+            Write-Host "" -ForegroundColor Yellow
+            Start-Sleep -Seconds 8
         }
     } else {
-        Write-Host "Warning: Could not bring MSE2 to foreground for auto-save." -ForegroundColor Yellow
-        Write-Host "         If you just made new cards, press Ctrl+C now, save manually in MSE2, then sync again." -ForegroundColor Yellow
-        Start-Sleep -Seconds 3
+        Write-Host "" -ForegroundColor Yellow
+        Write-Host "=========================================================" -ForegroundColor Yellow
+        Write-Host " WARNING: Could not bring MSE2 to foreground to save." -ForegroundColor Yellow
+        Write-Host " New cards AND keyword edits may not be saved!" -ForegroundColor Yellow
+        Write-Host "" -ForegroundColor Yellow
+        Write-Host " Press Ctrl+C NOW to cancel, save manually in MSE2" -ForegroundColor Yellow
+        Write-Host " (File > Save or Ctrl+S), then sync again." -ForegroundColor Yellow
+        Write-Host "=========================================================" -ForegroundColor Yellow
+        Write-Host "" -ForegroundColor Yellow
+        Start-Sleep -Seconds 8
     }
 }
 

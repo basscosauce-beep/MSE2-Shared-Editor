@@ -369,6 +369,8 @@ Write-Host "[Merge] Local: $($localMap.Count) | Friends new: $friendCount | Tomb
 # Rebuild set content: merged header + all merged cards
 #
 # Keyword strategy: LOCAL-WINS merge.
+#   - Scan the ENTIRE local backup (header + after cards) for keywords,
+#     because MSE2 sometimes writes keywords at the end of the file.
 #   - Start with cloud keywords as the base
 #   - If local has a keyword with the same name, LOCAL version wins
 #     (so user edits to reminder text etc. are preserved)
@@ -376,9 +378,23 @@ Write-Host "[Merge] Local: $($localMap.Count) | Friends new: $friendCount | Tomb
 #   - Cloud-only keywords are kept as-is
 # ===========================================================================
 $cloudHeader   = Get-DedupedHeader (Get-SetHeader $cloudContent)
-$localHeader   = Get-DedupedHeader (Get-SetHeader $localContent)
-$cloudKeywords = Get-KeywordMap $cloudHeader
-$localKeywords = Get-KeywordMap $localHeader
+# Scan the FULL local backup content for keywords (not just the header)
+# so any keywords MSE2 appended after the card section are captured too.
+$cloudKeywords = Get-KeywordMap $cloudContent
+$localKeywords = Get-KeywordMap $localContent
+
+Write-Host "[Merge] Cloud keywords: $($cloudKeywords.Count)" -ForegroundColor DarkGray
+foreach ($kw in $cloudKeywords.Keys) {
+    $rem = ""
+    if ($cloudKeywords[$kw] -match "\treminder:\s+(.+)") { $rem = $matches[1].Trim().Substring(0,[Math]::Min(50,$matches[1].Trim().Length)) }
+    Write-Host "  cloud kw: '$kw' reminder='$rem'" -ForegroundColor DarkGray
+}
+Write-Host "[Merge] Local keywords: $($localKeywords.Count)" -ForegroundColor DarkGray
+foreach ($kw in $localKeywords.Keys) {
+    $rem = ""
+    if ($localKeywords[$kw] -match "\treminder:\s+(.+)") { $rem = $matches[1].Trim().Substring(0,[Math]::Min(50,$matches[1].Trim().Length)) }
+    Write-Host "  local kw: '$kw' reminder='$rem'" -ForegroundColor DarkGray
+}
 
 # Build final keyword set: start with cloud, overlay local
 $finalKeywords = [ordered]@{}
@@ -389,13 +405,14 @@ foreach ($kw in $localKeywords.Keys) {
     if ($finalKeywords.Contains($kw)) {
         # Local version wins (preserves user edits to reminder text etc.)
         $finalKeywords[$kw] = $localKeywords[$kw]
+        Write-Host "[Merge] Keyword '$kw': local wins" -ForegroundColor DarkGray
     } else {
-        # New local keyword
+        # New local keyword - add it
         $finalKeywords[$kw] = $localKeywords[$kw]
-        Write-Host "[Merge] New local keyword preserved: $kw" -ForegroundColor Cyan
+        Write-Host "[Merge] New local keyword preserved: '$kw'" -ForegroundColor Cyan
     }
 }
-Write-Host "[Merge] Keywords: $($finalKeywords.Count) total ($($cloudKeywords.Count) cloud, $($localKeywords.Count) local)" -ForegroundColor DarkGray
+Write-Host "[Merge] Final keywords: $($finalKeywords.Count) total" -ForegroundColor DarkGray
 
 # Build the pre-card header WITHOUT any keywords, then append merged keywords
 $cloudHeaderNoKw = ($cloudHeader -split "(?m)^(?=keyword:)")[0]
