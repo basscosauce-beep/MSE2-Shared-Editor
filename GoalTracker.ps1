@@ -146,10 +146,11 @@ try {
         else { $cardMv = "MV $mv" }
 
         $cardRarity = ""
-        if ($rarityRaw -match "mythic") { $cardRarity = "Mythic Rare" }
-        elseif ($rarityRaw -match "rare") { $cardRarity = "Rare" }
+        if     ($rarityRaw -match "mythic")   { $cardRarity = "Mythic Rare" }
+        elseif ($rarityRaw -match "rare")     { $cardRarity = "Rare" }
         elseif ($rarityRaw -match "uncommon") { $cardRarity = "Uncommon" }
         elseif ($rarityRaw -match "common" -or $rarityRaw -match "basic") { $cardRarity = "Common" }
+        elseif ($rarityRaw -eq "")            { $cardRarity = "Common" }  # blank = Common (MSE2 default)
         
         if ($cardType) { 
             $actuals["${cardColor}_${cardType}"]++ 
