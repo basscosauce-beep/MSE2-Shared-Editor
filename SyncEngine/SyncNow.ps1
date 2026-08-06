@@ -89,9 +89,21 @@ if ($mseProc) {
 # Now kill MSE2 so file locks are released
 Write-Host "Closing Magic Set Editor..." -ForegroundColor Yellow
 Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
-Stop-Process -Name "MenuAddon" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
+Stop-Process -Name "MenuAddon"      -Force -ErrorAction SilentlyContinue
 
+# Wait for the process to fully exit AND for Windows to flush any pending
+# disk writes (MSE2 writes a zip - we need the write to be complete)
+$mseGone = $false
+for ($w = 0; $w -lt 10; $w++) {
+    Start-Sleep -Seconds 1
+    $still = Get-Process "magicseteditor" -ErrorAction SilentlyContinue
+    if (-not $still) { $mseGone = $true; break }
+}
+if (-not $mseGone) {
+    # Force kill again
+    Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+}
 Write-Host "Syncing with cloud..." -ForegroundColor Cyan
 
 $p1 = "ghp_2g4dOrh3klYwVMo6o"
@@ -127,15 +139,53 @@ if ($branch -ne "main") {
 
 
 # ---------------------------------------------------------------
-# STEP 1: Back up the local set file AFTER MSE2 is closed
-# This guarantees file locks are released and disk writes are complete.
+# STEP 1: Back up the local set file AFTER MSE2 is closed.
+# Retry up to 5x to handle cases where MSE2 was mid-write when killed.
 # ---------------------------------------------------------------
 $setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
 $localBackupPath = $null
 if ($setFile -and (Test-Path $setFile.FullName)) {
-    $localBackupPath = "$env:TEMP\mse_local_backup_$([System.IO.Path]::GetRandomFileName()).mse-set"
-    Copy-Item $setFile.FullName $localBackupPath -Force
-    Write-Host "Local cards saved to backup." -ForegroundColor DarkCyan
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $backupOk = $false
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            $testZip = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
+            $testEntry = $testZip.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1
+            if ($testEntry) {
+                $testSr = New-Object System.IO.StreamReader($testEntry.Open(), [System.Text.Encoding]::UTF8)
+                $testTxt = $testSr.ReadToEnd(); $testSr.Dispose()
+                $testCardCount = ($testTxt -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" }).Count
+                $testZip.Dispose()
+                if ($testCardCount -gt 0) {
+                    $backupOk = $true
+                    Write-Host "Local file verified: $testCardCount cards found." -ForegroundColor DarkCyan
+                    break
+                } else {
+                    Write-Host "Attempt $attempt: local file has 0 cards - waiting for disk flush..." -ForegroundColor Yellow
+                }
+            } else {
+                $testZip.Dispose()
+                Write-Host "Attempt $attempt: local zip has no 'set' entry - waiting..." -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "Attempt $attempt: local file not readable yet ($_) - waiting..." -ForegroundColor Yellow
+        }
+        Start-Sleep -Seconds 2
+    }
+
+    if ($backupOk) {
+        $localBackupPath = "$env:TEMP\mse_local_backup_$([System.IO.Path]::GetRandomFileName()).mse-set"
+        Copy-Item $setFile.FullName $localBackupPath -Force
+        Write-Host "Local cards backed up for merge." -ForegroundColor DarkCyan
+    } else {
+        Write-Host "" -ForegroundColor Red
+        Write-Host "=========================================================" -ForegroundColor Red
+        Write-Host " WARNING: Could not read local set file after 5 attempts." -ForegroundColor Red
+        Write-Host " Your LOCAL card changes may not be synced this time." -ForegroundColor Red
+        Write-Host " Cloud cards will be downloaded safely." -ForegroundColor Red
+        Write-Host "=========================================================" -ForegroundColor Red
+        Write-Host "" -ForegroundColor Red
+    }
 }
 
 # ---------------------------------------------------------------

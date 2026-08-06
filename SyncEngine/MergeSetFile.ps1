@@ -39,14 +39,30 @@ function Get-CardMap {
     param([string]$content)
     $map = New-Object System.Collections.Specialized.OrderedDictionary
     if (-not $content) { return $map }
+    $idx = 0
     $content -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
         # Strip any trailing keyword:/version_control:/apprentice_code: blocks.
         # MSE2 writes these at the very end of the file after all cards.
         # Without this, the last card carries them into the merge output.
         $cardBlock = ($_ -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
         if ($cardBlock -match "time_created: ([^\r\n]+)") {
-            $map[$matches[1].Trim()] = $cardBlock
+            $tc = $matches[1].Trim()
+            if (-not $map.Contains($tc)) {
+                $map[$tc] = $cardBlock
+            }
+            # If duplicate time_created, keep the longer (more complete) version
+            elseif ($cardBlock.Length -gt $map[$tc].Length) {
+                $map[$tc] = $cardBlock
+            }
+        } else {
+            # No time_created field - assign a positional fallback so the card
+            # is never silently dropped. This can happen if MSE2 wrote a card
+            # without the field, or the backup was truncated mid-write.
+            $fallback = "_notime_$idx"
+            $map[$fallback] = $cardBlock
+            Write-Host "[Merge] WARNING: Card at position $idx has no time_created - using fallback key '$fallback'" -ForegroundColor Yellow
         }
+        $idx++
     }
     return $map
 }
