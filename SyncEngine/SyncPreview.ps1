@@ -308,7 +308,7 @@ function New-CardRow($entry, [string]$category) {
 $totalChanges = $adding.Count + $deleting.Count + $edited.Count + $incoming.Count
 
 if ($totalChanges -eq 0) {
-    $subText.Text = "No changes — your set is already in sync with the cloud."
+    $subText.Text = "No changes - your set is already in sync with the cloud."
     $btnSync.Content = "Sync (No Changes)"
 } else {
     $subText.Text = "Review the changes below before uploading to the cloud."
@@ -332,31 +332,31 @@ if ($totalChanges -eq 0) {
 
 # Adding section
 if ($adding.Count -gt 0) {
-    $cardList.Children.Add((New-SectionHeader "ADDING  —  Your new cards going up" "#1E5C2A")) | Out-Null
+    $cardList.Children.Add((New-SectionHeader "ADDING - Your new cards going up" "#1E5C2A")) | Out-Null
     foreach ($e in $adding) { $cardList.Children.Add((New-CardRow $e "adding")) | Out-Null }
 }
 
 # Deleting section
 if ($deleting.Count -gt 0) {
-    $cardList.Children.Add((New-SectionHeader "DELETING  —  Will be removed for everyone" "#5C1E1E")) | Out-Null
+    $cardList.Children.Add((New-SectionHeader "DELETING - Will be removed for everyone" "#5C1E1E")) | Out-Null
     foreach ($e in $deleting) { $cardList.Children.Add((New-CardRow $e "deleting")) | Out-Null }
 }
 
 # Edited section
 if ($edited.Count -gt 0) {
-    $cardList.Children.Add((New-SectionHeader "EDITED  —  Your changes to existing cards" "#1E3D5C")) | Out-Null
+    $cardList.Children.Add((New-SectionHeader "EDITED - Your changes to existing cards" "#1E3D5C")) | Out-Null
     foreach ($e in $edited) { $cardList.Children.Add((New-CardRow $e "edited")) | Out-Null }
 }
 
 # Incoming section
 if ($incoming.Count -gt 0) {
-    $cardList.Children.Add((New-SectionHeader "INCOMING  —  Friends' changes coming down" "#3D1E5C")) | Out-Null
+    $cardList.Children.Add((New-SectionHeader "INCOMING - Friends changes coming down" "#3D1E5C")) | Out-Null
     foreach ($e in $incoming) { $cardList.Children.Add((New-CardRow $e "incoming")) | Out-Null }
 }
 
 if ($totalChanges -eq 0) {
     $tb = New-Object System.Windows.Controls.TextBlock
-    $tb.Text = "Everything is already in sync. Click 'Sync Now' to confirm."
+    $tb.Text = "Everything is already in sync. Click Sync Now to confirm."
     $tb.Foreground = "#555"; $tb.FontStyle = "Italic"; $tb.Margin = "0,24,0,0"
     $tb.HorizontalAlignment = "Center"
     $cardList.Children.Add($tb) | Out-Null
