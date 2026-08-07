@@ -1,4 +1,4 @@
-$Host.UI.RawUI.WindowTitle = "Magic Set Editor - Manual Sync"
+$Host.UI.RawUI.WindowTitle = "Magic Set Editor - Sync v3.4"
 
 # ---------------------------------------------------------------------------
 # Auto-save MSE2 BEFORE killing it so unsaved cards are flushed to disk.
