@@ -996,7 +996,8 @@ card:
 
                     # 5. Read the CURRENT local file (which already has the Ctrl+S save from step 1)
                     #    and the LATEST cloud content, then merge: cloud cards + new card
-                    $latestBlobHash = (& $gitExe2 -C $appData rev-parse "origin/main:$($liveSetFile.FullName.Replace("$appData\","").Replace("\","/"))" 2>$null).Trim()
+                    $relSetPath = $liveSetFile.FullName.Replace("$appData\", "").Replace("\", "/")
+                    $latestBlobHash = (& $gitExe2 -C $appData rev-parse "origin/main:$relSetPath" 2>$null).Trim()
                     $cloudTxt = $null
                     if ($latestBlobHash) {
                         $tmpCloud = [System.IO.Path]::GetTempFileName() + ".mse-set"

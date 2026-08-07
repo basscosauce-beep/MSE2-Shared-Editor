@@ -171,14 +171,15 @@ if ($setFile -and (Test-Path $setFile.FullName)) {
                     Write-Host "Local file verified: $testCardCount cards found." -ForegroundColor DarkCyan
                     break
                 } else {
-                    Write-Host "Attempt $attempt: local file has 0 cards - waiting for disk flush..." -ForegroundColor Yellow
+                    Write-Host ("Attempt {0}: local file has 0 cards - waiting for disk flush..." -f $attempt) -ForegroundColor Yellow
                 }
             } else {
                 $testZip.Dispose()
-                Write-Host "Attempt $attempt: local zip has no 'set' entry - waiting..." -ForegroundColor Yellow
+                Write-Host ("Attempt {0}: local zip has no 'set' entry - waiting..." -f $attempt) -ForegroundColor Yellow
             }
         } catch {
-            Write-Host "Attempt $attempt: local file not readable yet ($_) - waiting..." -ForegroundColor Yellow
+            $errMsg = $_.Exception.Message
+            Write-Host ("Attempt {0}: local file not readable yet ({1}) - waiting..." -f $attempt, $errMsg) -ForegroundColor Yellow
         }
         Start-Sleep -Seconds 2
     }
