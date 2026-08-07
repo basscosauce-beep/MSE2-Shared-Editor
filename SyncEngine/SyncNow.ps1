@@ -22,89 +22,68 @@ if ($mseProc) {
     Add-Type -AssemblyName Microsoft.VisualBasic
     Add-Type -AssemblyName System.Windows.Forms
 
-    # Record timestamp RIGHT before sending Ctrl+S (not at startup) so we
-    # correctly detect saves even if the user already saved manually.
+    # Record timestamp RIGHT before sending Ctrl+S
     $preTimestamp = $null
     if ($setFile) { $preTimestamp = $setFile.LastWriteTime }
 
-    # Try to bring MSE2 to foreground (multiple methods for reliability)
+    # Bring MSE2 to foreground
     $focused = $false
-    try {
-        [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id)
-        $focused = $true
-    } catch {}
-
+    try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id); $focused = $true } catch {}
     if (-not $focused) {
-        try {
-            [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.MainWindowTitle)
-            $focused = $true
-        } catch {}
+        try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.MainWindowTitle); $focused = $true } catch {}
     }
 
     if ($focused) {
-        Start-Sleep -Milliseconds 500
-        # Send Ctrl+S three times with pauses for reliability
+        Start-Sleep -Milliseconds 300
         [System.Windows.Forms.SendKeys]::SendWait("^s")
-        Start-Sleep -Milliseconds 2000
-        [System.Windows.Forms.SendKeys]::SendWait("^s")
-        Start-Sleep -Milliseconds 2000
-        [System.Windows.Forms.SendKeys]::SendWait("^s")
-        Start-Sleep -Milliseconds 2000
 
-        # Wait up to 15 seconds for the file to actually be written
+        # Poll every 300ms for up to 4s for the file timestamp to update
         $saveVerified = $false
-        for ($wait = 0; $wait -lt 15; $wait++) {
+        for ($wait = 0; $wait -lt 14; $wait++) {
+            Start-Sleep -Milliseconds 300
             $setFile.Refresh()
             if ($preTimestamp -and $setFile.LastWriteTime -gt $preTimestamp) {
-                $saveVerified = $true
-                Write-Host "Save verified (file updated on disk)." -ForegroundColor Green
-                break
+                $saveVerified = $true; Write-Host "Save verified." -ForegroundColor Green; break
             }
-            Start-Sleep -Milliseconds 1000
         }
+
+        # Not saved yet - one more Ctrl+S and another 3 seconds of polling
         if (-not $saveVerified) {
-            Write-Host "" -ForegroundColor Yellow
+            [System.Windows.Forms.SendKeys]::SendWait("^s")
+            for ($wait = 0; $wait -lt 10; $wait++) {
+                Start-Sleep -Milliseconds 300
+                $setFile.Refresh()
+                if ($preTimestamp -and $setFile.LastWriteTime -gt $preTimestamp) {
+                    $saveVerified = $true; Write-Host "Save verified (2nd attempt)." -ForegroundColor Green; break
+                }
+            }
+        }
+
+        if (-not $saveVerified) {
             Write-Host "=========================================================" -ForegroundColor Yellow
-            Write-Host " WARNING: Could not verify MSE2 saved to disk." -ForegroundColor Yellow
-            Write-Host " New cards AND keyword edits may not be saved!" -ForegroundColor Yellow
-            Write-Host "" -ForegroundColor Yellow
-            Write-Host " Press Ctrl+C NOW to cancel, save manually in MSE2" -ForegroundColor Yellow
-            Write-Host " (File > Save or Ctrl+S), then sync again." -ForegroundColor Yellow
+            Write-Host " WARNING: Could not verify MSE2 saved to disk."           -ForegroundColor Yellow
+            Write-Host " Press Ctrl+C to cancel, save (Ctrl+S), then sync again." -ForegroundColor Yellow
             Write-Host "=========================================================" -ForegroundColor Yellow
-            Write-Host "" -ForegroundColor Yellow
-            Start-Sleep -Seconds 8
+            Start-Sleep -Seconds 6
         }
     } else {
-        Write-Host "" -ForegroundColor Yellow
         Write-Host "=========================================================" -ForegroundColor Yellow
-        Write-Host " WARNING: Could not bring MSE2 to foreground to save." -ForegroundColor Yellow
-        Write-Host " New cards AND keyword edits may not be saved!" -ForegroundColor Yellow
-        Write-Host "" -ForegroundColor Yellow
-        Write-Host " Press Ctrl+C NOW to cancel, save manually in MSE2" -ForegroundColor Yellow
-        Write-Host " (File > Save or Ctrl+S), then sync again." -ForegroundColor Yellow
+        Write-Host " WARNING: Could not bring MSE2 to foreground to save."    -ForegroundColor Yellow
+        Write-Host " Press Ctrl+C to cancel, save (Ctrl+S), then sync again." -ForegroundColor Yellow
         Write-Host "=========================================================" -ForegroundColor Yellow
-        Write-Host "" -ForegroundColor Yellow
-        Start-Sleep -Seconds 8
+        Start-Sleep -Seconds 6
     }
 }
 
-# Now kill MSE2 so file locks are released
+# Kill MSE2 so file locks are released
 Write-Host "Closing Magic Set Editor..." -ForegroundColor Yellow
 Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
 Stop-Process -Name "MenuAddon"      -Force -ErrorAction SilentlyContinue
 
-# Wait for the process to fully exit AND for Windows to flush any pending
-# disk writes (MSE2 writes a zip - we need the write to be complete)
-$mseGone = $false
-for ($w = 0; $w -lt 10; $w++) {
-    Start-Sleep -Seconds 1
-    $still = Get-Process "magicseteditor" -ErrorAction SilentlyContinue
-    if (-not $still) { $mseGone = $true; break }
-}
-if (-not $mseGone) {
-    # Force kill again
-    Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
+# Poll every 250ms until gone (typically < 500ms)
+for ($w = 0; $w -lt 20; $w++) {
+    Start-Sleep -Milliseconds 250
+    if (-not (Get-Process "magicseteditor" -ErrorAction SilentlyContinue)) { break }
 }
 Write-Host "Syncing with cloud..." -ForegroundColor Cyan
 
