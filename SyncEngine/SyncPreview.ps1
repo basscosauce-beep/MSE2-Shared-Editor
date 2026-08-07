@@ -93,19 +93,13 @@ foreach ($k in $mergedMap.Keys) { $commitMap[$k] = $mergedMap[$k] }
 # Categorize cards
 $adding   = @()  # in merged, NOT in cloud (your new cards going up)
 $deleting = @()  # in cloud, NOT in merged  (being removed for everyone)
-$edited   = @()  # in both but content differs
-$incoming = @()  # in both, content differs, and creator != UserName (friend's change)
+$changed  = @()  # in both but content differs (either user or friend changed it)
 
 foreach ($tc in $mergedMap.Keys) {
     if (-not $cloudMap.Contains($tc)) {
         $adding += @{ TC=$tc; Block=$mergedMap[$tc] }
     } elseif ($mergedMap[$tc] -ne $cloudMap[$tc]) {
-        $creator = Get-Field $mergedMap[$tc] "creator"
-        if ($creator -eq $UserName) {
-            $edited += @{ TC=$tc; Block=$mergedMap[$tc]; CloudBlock=$cloudMap[$tc] }
-        } else {
-            $incoming += @{ TC=$tc; Block=$mergedMap[$tc]; CloudBlock=$cloudMap[$tc] }
-        }
+        $changed += @{ TC=$tc; Block=$mergedMap[$tc]; CloudBlock=$cloudMap[$tc] }
     }
 }
 foreach ($tc in $cloudMap.Keys) {
@@ -256,43 +250,44 @@ function New-CardRow($entry, [string]$category) {
     [System.Windows.Controls.Grid]::SetColumn($btnPanel, 1)
 
     if ($category -eq "adding") {
+        $capturedTC    = $entry.TC
+        $capturedBlock = $entry.Block
+        $capturedOuter = $outer
+        $capturedConv  = $conv
         $btn = New-Object System.Windows.Controls.Button
         $btn.Content    = "Remove"
         $btn.Background = $conv.ConvertFromString("#E74C3C")
         $btn.ToolTip    = "Defer this card - it will sync next time instead"
-        $capturedTC    = $entry.TC
-        $capturedBlock = $entry.Block
-        $capturedOuter = $outer
+        $capturedBtn   = $btn
         $btn.add_Click({
-            # Remove from commitMap
             if ($commitMap.Contains($capturedTC)) { $commitMap.Remove($capturedTC) }
-            # Write to draft file so it syncs next time
             if ($DraftFile) {
                 Add-Content $DraftFile -Value ($capturedBlock.TrimEnd() + "`n") -Encoding UTF8
             }
-            $capturedOuter.Background = $conv.ConvertFromString("#1A1A1A")
-            $capturedOuter.Opacity = 0.4
-            $btn.IsEnabled = $false
-            $btn.Content = "Deferred"
+            $capturedOuter.Background = $capturedConv.ConvertFromString("#1A1A1A")
+            $capturedOuter.Opacity    = 0.4
+            $capturedBtn.IsEnabled    = $false
+            $capturedBtn.Content      = "Deferred"
         }.GetNewClosure())
         $btnPanel.Children.Add($btn) | Out-Null
     }
     elseif ($category -eq "deleting") {
+        $capturedTC    = $entry.TC
+        $capturedBlock = $entry.Block
+        $capturedOuter = $outer
+        $capturedConv  = $conv
         $btn = New-Object System.Windows.Controls.Button
         $btn.Content    = "Keep"
         $btn.Background = $conv.ConvertFromString("#27AE60")
         $btn.ToolTip    = "Restore this card - put it back in the set"
-        $capturedTC    = $entry.TC
-        $capturedBlock = $entry.Block
-        $capturedOuter = $outer
+        $capturedBtn   = $btn
         $btn.add_Click({
-            # Add back to commitMap (restore from cloud block)
             if (-not $commitMap.Contains($capturedTC)) { $commitMap[$capturedTC] = $capturedBlock }
-            $capturedOuter.Background = $conv.ConvertFromString("#1A2E1A")
-            $capturedOuter.Opacity = 0.6
-            $btn.IsEnabled = $false
-            $btn.Content = "Kept"
-            $btn.Background = $conv.ConvertFromString("#555")
+            $capturedOuter.Background = $capturedConv.ConvertFromString("#1A2E1A")
+            $capturedOuter.Opacity    = 0.6
+            $capturedBtn.IsEnabled    = $false
+            $capturedBtn.Content      = "Kept"
+            $capturedBtn.Background   = $capturedConv.ConvertFromString("#555")
         }.GetNewClosure())
         $btnPanel.Children.Add($btn) | Out-Null
     }
@@ -305,7 +300,7 @@ function New-CardRow($entry, [string]$category) {
 # =========================================================================
 # Populate summary bar + card list
 # =========================================================================
-$totalChanges = $adding.Count + $deleting.Count + $edited.Count + $incoming.Count
+$totalChanges = $adding.Count + $deleting.Count + $changed.Count
 
 if ($totalChanges -eq 0) {
     $subText.Text = "No changes - your set is already in sync with the cloud."
@@ -320,11 +315,8 @@ if ($adding.Count -gt 0) {
 if ($deleting.Count -gt 0) {
     $summaryPanel.Children.Add((New-SummaryPill "-$($deleting.Count) deleting" "#E74C3C")) | Out-Null
 }
-if ($edited.Count -gt 0) {
-    $summaryPanel.Children.Add((New-SummaryPill "~$($edited.Count) edited" "#3498DB")) | Out-Null
-}
-if ($incoming.Count -gt 0) {
-    $summaryPanel.Children.Add((New-SummaryPill "$($incoming.Count) from friends" "#9B59B6")) | Out-Null
+if ($changed.Count -gt 0) {
+    $summaryPanel.Children.Add((New-SummaryPill "~$($changed.Count) changed" "#3498DB")) | Out-Null
 }
 if ($totalChanges -eq 0) {
     $summaryPanel.Children.Add((New-SummaryPill "No changes" "#555")) | Out-Null
@@ -342,16 +334,10 @@ if ($deleting.Count -gt 0) {
     foreach ($e in $deleting) { $cardList.Children.Add((New-CardRow $e "deleting")) | Out-Null }
 }
 
-# Edited section
-if ($edited.Count -gt 0) {
-    $cardList.Children.Add((New-SectionHeader "EDITED - Your changes to existing cards" "#1E3D5C")) | Out-Null
-    foreach ($e in $edited) { $cardList.Children.Add((New-CardRow $e "edited")) | Out-Null }
-}
-
-# Incoming section
-if ($incoming.Count -gt 0) {
-    $cardList.Children.Add((New-SectionHeader "INCOMING - Friends changes coming down" "#3D1E5C")) | Out-Null
-    foreach ($e in $incoming) { $cardList.Children.Add((New-CardRow $e "incoming")) | Out-Null }
+# Changed section
+if ($changed.Count -gt 0) {
+    $cardList.Children.Add((New-SectionHeader "CHANGED - Cards edited since last sync" "#1E3D5C")) | Out-Null
+    foreach ($e in $changed) { $cardList.Children.Add((New-CardRow $e "changed")) | Out-Null }
 }
 
 if ($totalChanges -eq 0) {
@@ -371,30 +357,51 @@ $btnCancel.add_Click({
 })
 
 $btnSync.add_Click({
-    # Rebuild the merged file from commitMap (respecting any Remove/Keep actions)
-    try {
-        $mergedHeader  = $mergedContent -replace "(?ms)^card:.*", "" -split "(?m)^card:" | Select-Object -First 1
-        # Actually: extract the header (everything before first "card:" block)
-        $headerMatch = if ($mergedContent -match "(?s)^(.*?)\ncard:") { $matches[1] + "`n" } else { $mergedContent }
+    # Only rewrite the zip if the user actually removed or kept cards
+    $anyChanges = $false
+    foreach ($tc in $mergedMap.Keys) {
+        if (-not $commitMap.Contains($tc)) { $anyChanges = $true; break }
+    }
+    foreach ($tc in $commitMap.Keys) {
+        if (-not $mergedMap.Contains($tc)) { $anyChanges = $true; break }
+    }
 
-        # Rebuild set text: header + all commitMap cards
-        $newText = $headerMatch
-        foreach ($tc in $commitMap.Keys) {
-            $block = $commitMap[$tc]
-            if (-not $block.StartsWith("card:")) { $block = "card:`n" + $block }
-            $newText += $block.TrimEnd() + "`n"
+    if ($anyChanges) {
+        try {
+            # Extract header: everything before the first "card:" line (CRLF-safe)
+            $headerMatch = if ($mergedContent -match "(?s)^(.*?)\r?\ncard:") {
+                $matches[1] + "`r`n"
+            } else {
+                ""
+            }
+
+            # Extract trailing section: everything after the last card block
+            # (keywords, version_control, apprentice_code, etc.)
+            $trailingMatch = ""
+            $lastCardIdx = $mergedContent.LastIndexOf("`ncard:")
+            if ($lastCardIdx -ge 0) {
+                # Find end of last card block by looking for next top-level keyword/version section
+                $afterCards = $mergedContent.Substring($lastCardIdx)
+                if ($afterCards -match "(?s)\r?\n(keyword:|version_control:|apprentice_code:)") {
+                    $trailStart = $afterCards.IndexOf("`n" + $matches[1])
+                    if ($trailStart -ge 0) {
+                        $trailingMatch = "`r`n" + $afterCards.Substring($trailStart + 1)
+                    }
+                }
+            }
+
+            $newText = $headerMatch
+            foreach ($tc in $commitMap.Keys) {
+                $block = $commitMap[$tc]
+                if (-not $block.StartsWith("card:")) { $block = "card:`r`n" + $block }
+                $newText += $block.TrimEnd() + "`r`n"
+            }
+            $newText += $trailingMatch
+
+            Write-ZipSet $MergedFile $newText
+        } catch {
+            Write-Host "Preview: could not rebuild set: $($_.Exception.Message)"
         }
-
-        # Append trailing metadata that was in merged (keywords, version_control, etc.)
-        $trailingMatch = if ($mergedContent -match "(?ms)\n(keyword:.*|version_control:.*)$") {
-            "`n" + $matches[1]
-        } else { "" }
-        $newText += $trailingMatch
-
-        Write-ZipSet $MergedFile $newText
-    } catch {
-        # If rebuild fails, just use the merged file as-is
-        Write-Host "Preview: could not rebuild set text: $($_.Exception.Message)"
     }
 
     Set-Content $ResultFile "OK" -Encoding UTF8

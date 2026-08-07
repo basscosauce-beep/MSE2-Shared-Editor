@@ -296,7 +296,7 @@ if ($cloudSetFile) {
 
     # Pass the cloud BASELINE (origin/main blob) as a temp file for diffing
     $cloudBaselineTemp = "$env:TEMP\sync_preview_cloud_$([System.IO.Path]::GetRandomFileName()).mse-set"
-    $cloudRelPath = $cloudSetFile.FullName.Substring($repoDir.Length + 1).Replace("\", "/")
+    $cloudRelPath = $cloudSetFile.FullName.Substring($repoDir.TrimEnd('\').Length + 1).Replace("\", "/")
     $cloudBlob = (& $gitCmd -C $repoDir rev-parse "origin/main:$cloudRelPath" 2>$null).Trim()
     if ($cloudBlob) {
         cmd /c ("`"" + $gitCmd + "`" -C `"" + $repoDir + "`" cat-file blob " + $cloudBlob + " > `"" + $cloudBaselineTemp + "`"") 2>$null
