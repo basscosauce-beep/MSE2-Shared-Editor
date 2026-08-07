@@ -13,16 +13,19 @@ $env:GIT_TERMINAL_PROMPT = "0"
 $env:GIT_ASKPASS = "echo"
 $repoDir = (Resolve-Path "$PSScriptRoot\..").Path
 
-# Record set file timestamp BEFORE save so we can verify it changed
+# Resolve set file path up front (used in multiple places below)
 $setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
-$preTimestamp = $null
-if ($setFile) { $preTimestamp = $setFile.LastWriteTime }
 
 if ($mseProc) {
     try { $mseExePath = $mseProc.MainModule.FileName } catch {}
     Write-Host "Auto-saving your cards..." -ForegroundColor Cyan
     Add-Type -AssemblyName Microsoft.VisualBasic
     Add-Type -AssemblyName System.Windows.Forms
+
+    # Record timestamp RIGHT before sending Ctrl+S (not at startup) so we
+    # correctly detect saves even if the user already saved manually.
+    $preTimestamp = $null
+    if ($setFile) { $preTimestamp = $setFile.LastWriteTime }
 
     # Try to bring MSE2 to foreground (multiple methods for reliability)
     $focused = $false
@@ -33,7 +36,6 @@ if ($mseProc) {
 
     if (-not $focused) {
         try {
-            # Fallback: use window title
             [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.MainWindowTitle)
             $focused = $true
         } catch {}
@@ -118,6 +120,14 @@ $userName = (& $gitCmd -C $repoDir config user.name 2>$null).Trim()
 if (-not $userName) {
     & $gitCmd -C $repoDir config user.name "MSE Shared" *>$null
     & $gitCmd -C $repoDir config user.email "shared@mse.local" *>$null
+    $userName = "MSE Shared"
+}
+# Bug #8 fix: if user.name is the generic fallback, use a machine-specific ID
+# so draft files don't collide between users on different machines.
+$draftUserName = $userName
+if ($draftUserName -match "^(MSE Shared|Anonymous|Unknown)$") {
+    $draftUserName = $env:USERNAME  # Windows login name - unique per machine
+    if (-not $draftUserName) { $draftUserName = [System.Net.Dns]::GetHostName() }
 }
 
 # First-time setup: no commits yet
@@ -208,8 +218,9 @@ if ($localBackupPath -and (Test-Path $localBackupPath)) {
     # STEP 3a: Inject any "Create This Card" draft cards into the local backup
     # GoalTracker writes draft_cards_<user>.txt; we append them here so they
     # ride through MergeSetFile as newly-created local cards.
+    # Uses $draftUserName (machine-specific) not $userName (generic git name)
     # -----------------------------------------------------------------------
-    $safeUserForDraft = $userName -replace '[\\/:*?"<>|]', '_'
+    $safeUserForDraft = $draftUserName -replace '[\/:*?"<>|]', '_'
     $draftFile = "$repoDir\Shared-Set\draft_cards_${safeUserForDraft}.txt"
     if (Test-Path $draftFile) {
         $draftContent = Get-Content $draftFile -Raw
@@ -278,18 +289,46 @@ if ($cloudSetFile) {
 
 # ---------------------------------------------------------------
 # STEP 5: Commit everything (merged cards + creator fields) and push
+# Bug #1 fix: retry push up to 3x with fetch+rebase on rejection
+# so simultaneous syncs don't silently lose cards.
 # ---------------------------------------------------------------
 Write-Host "Uploading your cards to the cloud..." -ForegroundColor Yellow
-# Add set files, tombstone, and any new backup marker files (last_known_* are gitignored)
 & $gitCmd -C $repoDir add "Shared-Set/" *>$null
 & $gitCmd -C $repoDir commit -m "Auto-sync card updates" *>$null
 
-& $gitCmd -C $repoDir @credBypass push origin main
+$pushOk = $false
+for ($pushAttempt = 1; $pushAttempt -le 3; $pushAttempt++) {
+    & $gitCmd -C $repoDir @credBypass push origin main 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { $pushOk = $true; break }
 
-if ($LASTEXITCODE -eq 0) {
+    Write-Host "Push attempt $pushAttempt failed (someone else synced at the same time). Re-merging..." -ForegroundColor Yellow
+
+    # Fetch latest, rebase our commit on top, then try again
+    & $gitCmd -C $repoDir @credBypass fetch origin *>$null
+    & $gitCmd -C $repoDir rebase origin/main *>$null
+    if ($LASTEXITCODE -ne 0) {
+        # Rebase conflict on binary - abort and take ours
+        & $gitCmd -C $repoDir rebase --abort *>$null
+        & $gitCmd -C $repoDir reset --hard origin/main *>$null
+        Write-Host "Re-running merge after conflict resolution..." -ForegroundColor Yellow
+        # Re-run the merge with the same backup
+        if ($localBackupPath -and (Test-Path $localBackupPath) -and $cloudSetFile) {
+            . "$PSScriptRoot\MergeSetFile.ps1" -LocalBackup $localBackupPath -CloudFile $cloudSetFile.FullName -UserName $userName
+        }
+        & $gitCmd -C $repoDir add "Shared-Set/" *>$null
+        & $gitCmd -C $repoDir commit -m "Auto-sync card updates" *>$null
+    }
+    Start-Sleep -Seconds 1
+}
+
+if ($pushOk) {
     Write-Host "Sync Complete! Your friends will now see your cards." -ForegroundColor Green
 } else {
-    Write-Host "Warning: Failed to upload. Please try again." -ForegroundColor Red
+    Write-Host "" -ForegroundColor Red
+    Write-Host "=========================================================" -ForegroundColor Red
+    Write-Host " WARNING: Could not upload after 3 attempts." -ForegroundColor Red
+    Write-Host " Your cards are saved locally. Please sync again soon." -ForegroundColor Red
+    Write-Host "=========================================================" -ForegroundColor Red
 }
 
 Write-Host "`nRelaunching Magic Set Editor..."

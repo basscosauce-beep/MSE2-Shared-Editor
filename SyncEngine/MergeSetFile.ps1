@@ -157,15 +157,20 @@ function Save-LastKnown {
     $sha   = [System.Security.Cryptography.SHA256]::Create()
     $lines = New-Object System.Collections.Generic.List[string]
     $fc -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
-        if ($_ -match "time_created: ([^\r\n]+)") {
-            $tc   = $matches[1].Trim()
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($_)
+        # Strip trailing metadata blocks exactly like Get-CardMap does,
+        # so the saved hash matches what Get-CardMap will produce next sync.
+        # Without this, hashes never match and change-detection always fires.
+        $stripped = ($_ -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
+        if ($stripped -match "time_created: ([^\r\n]+)") {
+            $tc    = $matches[1].Trim()
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($stripped)
             $hex   = [System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace "-", ""
             $lines.Add($tc + "|" + $hex.Substring(0, 16))
         }
     }
     $sha.Dispose()
     Set-Content $KnownFile -Value ($lines -join "`n") -Encoding UTF8
+    Write-Host "[Merge] Saved $($lines.Count) card baselines to $(Split-Path $KnownFile -Leaf)" -ForegroundColor DarkGray
 }
 
 # ===========================================================================
@@ -433,12 +438,18 @@ Write-Host "[Merge] Final keywords: $($finalKeywords.Count) total" -ForegroundCo
 # Build the pre-card header WITHOUT any keywords, then append merged keywords
 $cloudHeaderNoKw = ($cloudHeader -split "(?m)^(?=keyword:)")[0]
 $mergedKwText = ($finalKeywords.Values | Where-Object { $_ }) -join ""
+Write-Host "[Merge] Merged result: $mergedCardCount cards." -ForegroundColor DarkGray
 
-# Assemble merged cards text, then do a FINAL sanitization pass:
-# Strip any keyword:/version_control:/apprentice_code: blocks that leaked
-# into the card section. This is the nuclear defence against duplication -
-# no matter what the inputs look like, the output is always clean.
+# Write updated tombstone (git-committed so all users see it)
+# Note: if skipTombstone fired, the tombstone set is unchanged from what was read from disk
+Set-Content $tombstoneFile -Value (($tombstone | Sort-Object) -join "`n") -Encoding UTF8
+
+# Bug #4 fix: tighten sanitization - only strip trailing metadata blocks that
+# appear AFTER all tab-indented content ends, not mid-card version_control: fields.
+# The previous regex could truncate cards that have version_control as a field.
 $rawCardText = $mergedCards -join ""
+# Only strip blocks that start at column 0 (no leading tab) - these are file-level
+# metadata, not card fields (which are always tab-indented)
 $cleanParts = $rawCardText -split "(?m)^(?=keyword:|version_control:|apprentice_code:)"
 $cleanCardText = ($cleanParts | Where-Object { $_ -ne "" -and $_ -notmatch "^(keyword|version_control|apprentice_code):" }) -join ""
 
@@ -527,6 +538,11 @@ try {
 
     Copy-Item $tempZipPath $CloudFile -Force
     Write-Host "[Merge] Merge complete!" -ForegroundColor Green
+
+    # Bug #2 fix: Save last_known AFTER the merged zip is written to disk.
+    # Previously this was saved from the pre-merge cloud file (wrong baseline).
+    # Now it reflects the actual merged result so next sync's change-detection is accurate.
+    Save-LastKnown -SetFilePath $CloudFile -KnownFile $lastKnownFile
 }
 catch {
     Write-Host "[Merge] Failed: $_" -ForegroundColor Red
