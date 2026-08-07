@@ -283,8 +283,64 @@ if ($cloudSetFile) {
     Write-Host "Hash baseline updated after creator fill." -ForegroundColor DarkGray
 }
 
+
 # ---------------------------------------------------------------
-# STEP 5: Commit everything (merged cards + creator fields) and push
+# STEP 5: Sync Preview - show changes before committing
+# User must confirm before anything is pushed to GitHub
+# ---------------------------------------------------------------
+$previewResult = "OK"  # default: proceed (in case preview script fails to launch)
+if ($cloudSetFile) {
+    $resultFile  = "$env:TEMP\sync_preview_result_$([System.IO.Path]::GetRandomFileName()).txt"
+    $safeUserDP  = $userName -replace '[\\/:*?"<>|]', '_'
+    $dpDraftFile = "$($cloudSetFile.DirectoryName)\draft_cards_${safeUserDP}.txt"
+
+    # Pass the cloud BASELINE (origin/main blob) as a temp file for diffing
+    $cloudBaselineTemp = "$env:TEMP\sync_preview_cloud_$([System.IO.Path]::GetRandomFileName()).mse-set"
+    $cloudRelPath = $cloudSetFile.FullName.Substring($repoDir.Length + 1).Replace("\", "/")
+    $cloudBlob = (& $gitCmd -C $repoDir rev-parse "origin/main:$cloudRelPath" 2>$null).Trim()
+    if ($cloudBlob) {
+        cmd /c ("`"" + $gitCmd + "`" -C `"" + $repoDir + "`" cat-file blob " + $cloudBlob + " > `"" + $cloudBaselineTemp + "`"") 2>$null
+    }
+    # Fall back to the current cloud file if blob extraction failed
+    if (-not (Test-Path $cloudBaselineTemp) -or (Get-Item $cloudBaselineTemp).Length -eq 0) {
+        Copy-Item $cloudSetFile.FullName $cloudBaselineTemp -Force
+    }
+
+    Write-Host "Opening sync preview..." -ForegroundColor Cyan
+    $previewArgs = "-ExecutionPolicy Bypass -File `"$PSScriptRoot\SyncPreview.ps1`"" +
+                   " -MergedFile `"$($cloudSetFile.FullName)`"" +
+                   " -CloudFile `"$cloudBaselineTemp`"" +
+                   " -ResultFile `"$resultFile`"" +
+                   " -DraftFile `"$dpDraftFile`"" +
+                   " -UserName `"$userName`""
+    $previewProc = Start-Process "powershell.exe" -ArgumentList $previewArgs -PassThru
+    $previewProc.WaitForExit()
+
+    Remove-Item $cloudBaselineTemp -Force -ErrorAction SilentlyContinue
+
+    if (Test-Path $resultFile) {
+        $previewResult = (Get-Content $resultFile -Raw).Trim()
+        Remove-Item $resultFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if ($previewResult -ne "OK") {
+    Write-Host "" -ForegroundColor Yellow
+    Write-Host "Sync cancelled by user. Restoring cloud version..." -ForegroundColor Yellow
+    & $gitCmd -C $repoDir checkout -- "Shared-Set/" *>$null
+    Write-Host "No changes were uploaded. Relaunching MSE2..." -ForegroundColor Cyan
+    $launchSet = if ($cloudSetFile) { $cloudSetFile.FullName } elseif ($setFile) { $setFile.FullName } else { $null }
+    if ($launchSet) {
+        Start-Process "wscript.exe" -ArgumentList "`"$repoDir\Launch_Silent.vbs`" `"$launchSet`""
+    } else {
+        Start-Process "wscript.exe" -ArgumentList "`"$repoDir\Launch_Silent.vbs`""
+    }
+    Start-Sleep -Seconds 2
+    exit
+}
+
+# ---------------------------------------------------------------
+# STEP 6: Commit everything (merged cards + creator fields) and push
 # Bug #1 fix: retry push up to 3x with fetch+rebase on rejection
 # so simultaneous syncs don't silently lose cards.
 # ---------------------------------------------------------------
