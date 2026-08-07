@@ -14,7 +14,9 @@ $env:GIT_ASKPASS = "echo"
 $repoDir = (Resolve-Path "$PSScriptRoot\..").Path
 
 # Resolve set file path up front (used in multiple places below)
-$setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
+$setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
+    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*\_pre_sync_backups\*" } |
+    Select-Object -First 1
 
 if ($mseProc) {
     try { $mseExePath = $mseProc.MainModule.FileName } catch {}
@@ -131,7 +133,9 @@ if ($branch -ne "main") {
 # STEP 1: Back up the local set file AFTER MSE2 is closed.
 # Retry up to 5x to handle cases where MSE2 was mid-write when killed.
 # ---------------------------------------------------------------
-$setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Where-Object { $_.Name -notlike "*.bak" } | Select-Object -First 1
+$setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
+    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*\_pre_sync_backups\*" } |
+    Select-Object -First 1
 $localBackupPath = $null
 if ($setFile -and (Test-Path $setFile.FullName)) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -204,7 +208,9 @@ Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
 # that exist in the local backup but not in the cloud version
 # ---------------------------------------------------------------
 if ($localBackupPath -and (Test-Path $localBackupPath)) {
-    $cloudSetFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
+    $cloudSetFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
+        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*\_pre_sync_backups\*" } |
+        Select-Object -First 1
 
     # -----------------------------------------------------------------------
     # STEP 3a: Inject any "Create This Card" draft cards into the local backup
@@ -287,7 +293,8 @@ if ($cloudSetFile) {
 $previewResult = "OK"  # default: proceed (in case preview script fails to launch)
 if ($cloudSetFile) {
     $resultFile  = "$env:TEMP\sync_preview_result_$([System.IO.Path]::GetRandomFileName()).txt"
-    $safeUserDP  = $userName -replace '[\\/:*?"<>|]', '_'
+    # Must use $draftUserName (machine-specific) to match the key SyncNow writes to
+    $safeUserDP  = $draftUserName -replace '[\\/:*?"<>|]', '_'
     $dpDraftFile = "$($cloudSetFile.DirectoryName)\draft_cards_${safeUserDP}.txt"
 
     # Pass the cloud BASELINE (origin/main blob) as a temp file for diffing
