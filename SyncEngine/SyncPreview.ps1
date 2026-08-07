@@ -83,6 +83,14 @@ function Write-ZipSet([string]$zipPath, [string]$newSetText) {
 $mergedContent = Read-ZipSet $MergedFile
 $cloudContent  = Read-ZipSet $CloudFile
 
+if (-not $mergedContent -or -not $cloudContent) {
+    [System.Windows.Forms.MessageBox]::Show(
+        "Could not read one of the set files for preview.`nSync will proceed safely without preview.",
+        "Preview Unavailable", "OK", "Warning") | Out-Null
+    Set-Content $ResultFile "OK" -Encoding UTF8
+    exit
+}
+
 $mergedMap = Parse-CardMap $mergedContent
 $cloudMap  = Parse-CardMap $cloudContent
 
@@ -380,12 +388,14 @@ $btnSync.add_Click({
             $trailingMatch = ""
             $lastCardIdx = $mergedContent.LastIndexOf("`ncard:")
             if ($lastCardIdx -ge 0) {
-                # Find end of last card block by looking for next top-level keyword/version section
                 $afterCards = $mergedContent.Substring($lastCardIdx)
-                if ($afterCards -match "(?s)\r?\n(keyword:|version_control:|apprentice_code:)") {
-                    $trailStart = $afterCards.IndexOf("`n" + $matches[1])
+                if ($afterCards -match "(?s)`r?`n(keyword:|version_control:|apprentice_code:)") {
+                    $trailStart = $afterCards.IndexOf("`r`n" + $matches[1])
+                    if ($trailStart -lt 0) {
+                        $trailStart = $afterCards.IndexOf("`n" + $matches[1])
+                    }
                     if ($trailStart -ge 0) {
-                        $trailingMatch = "`r`n" + $afterCards.Substring($trailStart + 1)
+                        $trailingMatch = "`r`n" + $afterCards.Substring($trailStart).TrimStart("`r","`n")
                     }
                 }
             }

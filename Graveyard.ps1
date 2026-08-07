@@ -12,7 +12,8 @@ try {
     $myName = if (Test-Path $creatorFile) { (Get-Content $creatorFile -Raw).Trim() } else { "Unknown" }
 
     $setFile = Get-ChildItem "$appData\Shared-Set" -Recurse -Filter "*.mse-set" |
-        Where-Object { $_.Name -notlike "*.bak" } | Select-Object -First 1
+        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*\_pre_sync_backups\*" } |
+        Select-Object -First 1
     if (-not $setFile) { throw "Could not find the shared set file." }
 
     $setDir        = $setFile.DirectoryName

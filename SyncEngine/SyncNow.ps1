@@ -50,10 +50,6 @@ if ($mseProc) {
         # Not saved yet - one more Ctrl+S and another 3 seconds of polling
         if (-not $saveVerified) {
             [System.Windows.Forms.SendKeys]::SendWait("^s")
-            # IMPORTANT: clear the draft file now that cards are injected.
-            # If we don't, the next sync will inject the same cards again -> duplicates.
-            Remove-Item $draftFile -Force -ErrorAction SilentlyContinue
-            Write-Host "Draft card file cleared after injection." -ForegroundColor DarkGray
             for ($wait = 0; $wait -lt 10; $wait++) {
                 Start-Sleep -Milliseconds 300
                 $setFile.Refresh()
@@ -307,13 +303,16 @@ if ($cloudSetFile) {
     }
 
     Write-Host "Opening sync preview..." -ForegroundColor Cyan
-    $previewArgs = "-ExecutionPolicy Bypass -File `"$PSScriptRoot\SyncPreview.ps1`"" +
-                   " -MergedFile `"$($cloudSetFile.FullName)`"" +
-                   " -CloudFile `"$cloudBaselineTemp`"" +
-                   " -ResultFile `"$resultFile`"" +
-                   " -DraftFile `"$dpDraftFile`"" +
-                   " -UserName `"$userName`""
-    $previewProc = Start-Process "powershell.exe" -ArgumentList $previewArgs -PassThru
+    $previewArgList = @(
+        "-ExecutionPolicy", "Bypass",
+        "-File", "$PSScriptRoot\SyncPreview.ps1",
+        "-MergedFile", $cloudSetFile.FullName,
+        "-CloudFile",  $cloudBaselineTemp,
+        "-ResultFile", $resultFile,
+        "-DraftFile",  $dpDraftFile,
+        "-UserName",   $userName
+    )
+    $previewProc = Start-Process "powershell.exe" -ArgumentList $previewArgList -PassThru
     $previewProc.WaitForExit()
 
     Remove-Item $cloudBaselineTemp -Force -ErrorAction SilentlyContinue
