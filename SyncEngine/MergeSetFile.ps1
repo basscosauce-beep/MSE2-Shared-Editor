@@ -88,6 +88,26 @@ function Get-CardCreator {
 }
 
 # ---------------------------------------------------------------------------
+# Helper: permanently stamp a creator onto a card block that has none.
+# Inserts after time_modified (or time_created as fallback).
+# If the card already has a creator, returns it unchanged - never overwrites.
+# ---------------------------------------------------------------------------
+function Set-CardCreator {
+    param([string]$cardText, [string]$creator)
+    # Never overwrite an existing creator
+    if ($cardText -match "(?m)^\s*creator:\s*\S") { return $cardText }
+    if (-not $creator) { return $cardText }
+    # Insert after time_modified if present, else after time_created
+    if ($cardText -match "(?m)(^\ttime_modified: .+)") {
+        return $cardText -replace "(?m)(^\ttime_modified: .+)", ('$1' + "`n`tcreator: $creator")
+    } elseif ($cardText -match "(?m)(^\ttime_created: .+)") {
+        return $cardText -replace "(?m)(^\ttime_created: .+)", ('$1' + "`n`tcreator: $creator")
+    }
+    return $cardText
+}
+
+
+# ---------------------------------------------------------------------------
 # Helper: get card name for display
 # ---------------------------------------------------------------------------
 function Get-CardName {
@@ -370,8 +390,14 @@ foreach ($tc in $localMap.Keys) {
         }
     }
     else {
-        # Card only in local (user's new card) - keep it
-        $mergedCards.Add($localCard) | Out-Null
+        # Card only in local - this user just created it.
+        # Stamp their name as creator NOW, permanently. Never overwritten.
+        $stamped = Set-CardCreator $localCard $UserName
+        $mergedCards.Add($stamped) | Out-Null
+        $cardName = Get-CardName $localCard $tc
+        if ($stamped -ne $localCard) {
+            Write-Host "[Merge] New card '$cardName' creator stamped: '$UserName'" -ForegroundColor Cyan
+        }
     }
 }
 
