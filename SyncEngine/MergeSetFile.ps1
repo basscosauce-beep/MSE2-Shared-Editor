@@ -466,47 +466,26 @@ $cloudHeaderNoKw = ($cloudHeader -split "(?m)^(?=keyword:)")[0]
 $mergedKwText = ($finalKeywords.Values | Where-Object { $_ }) -join ""
 Write-Host "[Merge] Merged result: $mergedCardCount cards." -ForegroundColor DarkGray
 
-# Write updated tombstone (git-committed so all users see it)
-# Note: if skipTombstone fired, the tombstone set is unchanged from what was read from disk
-Set-Content $tombstoneFile -Value (($tombstone | Sort-Object) -join "`n") -Encoding UTF8
+# ===========================================================================
+# SAFETY: Deduplicate merged cards by time_created before assembling output.
+# Guards against any upstream path that inserted a card twice.
+# ===========================================================================
+$seenKeys = New-Object System.Collections.Generic.HashSet[string]
+$dedupedCards = New-Object System.Collections.Generic.List[string]
+foreach ($c in $mergedCards) {
+    $key = if ($c -match "(?m)^\ttime_created: ([^\r\n]+)") { $matches[1].Trim() } else { "_notime_$($dedupedCards.Count)" }
+    if ($seenKeys.Add($key)) { $dedupedCards.Add($c) | Out-Null }
+}
+if ($dedupedCards.Count -ne $mergedCards.Count) {
+    Write-Host "[Merge] Deduplicated: removed $($mergedCards.Count - $dedupedCards.Count) duplicate card(s)." -ForegroundColor Yellow
+    $mergedCards = $dedupedCards
+}
 
-# Bug #4 fix: tighten sanitization - only strip trailing metadata blocks that
-# appear AFTER all tab-indented content ends, not mid-card version_control: fields.
-# The previous regex could truncate cards that have version_control as a field.
-$rawCardText = $mergedCards -join ""
-# Only strip blocks that start at column 0 (no leading tab) - these are file-level
-# metadata, not card fields (which are always tab-indented)
-$cleanParts = $rawCardText -split "(?m)^(?=keyword:|version_control:|apprentice_code:)"
+$rawCardText  = $mergedCards -join ""
+$cleanParts   = $rawCardText -split "(?m)^(?=keyword:|version_control:|apprentice_code:)"
 $cleanCardText = ($cleanParts | Where-Object { $_ -ne "" -and $_ -notmatch "^(keyword|version_control|apprentice_code):" }) -join ""
 
 $mergedContent = $cloudHeaderNoKw + $mergedKwText + $cleanCardText
-
-# ===========================================================================
-# SAFETY CHECK 2: Never write an empty set when the cloud had cards.
-# If every card was somehow stripped from the merge result, abort here.
-# The cloud file is left exactly as-is so cards are not destroyed.
-# ===========================================================================
-$cloudCardCount = $cloudMap.Count
-$mergedCardCount = $mergedCards.Count
-if ($mergedCardCount -eq 0 -and ($cloudCardCount -gt 0 -or $lastKnown.Count -gt 0)) {
-    Write-Host "" -ForegroundColor Red
-    Write-Host "============================================================" -ForegroundColor Red
-    Write-Host " SAFETY ABORT: Merge would delete ALL $cloudCardCount cards!" -ForegroundColor Red
-    Write-Host " Cloud file left unchanged. Please sync again or run" -ForegroundColor Red
-    Write-Host " RecoverSet.ps1 if cards are missing from the cloud." -ForegroundColor Red
-    Write-Host "============================================================" -ForegroundColor Red
-    Write-Host "" -ForegroundColor Red
-    return
-}
-
-Write-Host "[Merge] Merged result: $mergedCardCount cards." -ForegroundColor DarkGray
-
-# Save initial last_known hashes (SyncNow.ps1 overwrites this after FillCreators runs)
-Save-LastKnown -SetFilePath $CloudFile -KnownFile $lastKnownFile
-
-# Write updated tombstone (git-committed so all users see it)
-# Note: if skipTombstone fired, the tombstone set is unchanged from what was read from disk
-Set-Content $tombstoneFile -Value (($tombstone | Sort-Object) -join "`n") -Encoding UTF8
 
 # ===========================================================================
 # Temp-file swap: write merged zip without touching the live file

@@ -50,6 +50,10 @@ if ($mseProc) {
         # Not saved yet - one more Ctrl+S and another 3 seconds of polling
         if (-not $saveVerified) {
             [System.Windows.Forms.SendKeys]::SendWait("^s")
+            # IMPORTANT: clear the draft file now that cards are injected.
+            # If we don't, the next sync will inject the same cards again -> duplicates.
+            Remove-Item $draftFile -Force -ErrorAction SilentlyContinue
+            Write-Host "Draft card file cleared after injection." -ForegroundColor DarkGray
             for ($wait = 0; $wait -lt 10; $wait++) {
                 Start-Sleep -Milliseconds 300
                 $setFile.Refresh()
@@ -287,16 +291,17 @@ for ($pushAttempt = 1; $pushAttempt -le 3; $pushAttempt++) {
     & $gitCmd -C $repoDir @credBypass fetch origin *>$null
     & $gitCmd -C $repoDir rebase origin/main *>$null
     if ($LASTEXITCODE -ne 0) {
-        # Rebase conflict on binary - abort and take ours
+        # Rebase conflict on binary - abort, take cloud as base, re-commit our merge
         & $gitCmd -C $repoDir rebase --abort *>$null
+        # Don't re-run MergeSetFile (backup was deleted). Instead:
+        # 1. Reset to cloud, 2. apply our already-merged file on top, 3. re-commit
+        $currentMerged = $cloudSetFile.FullName
         & $gitCmd -C $repoDir reset --hard origin/main *>$null
-        Write-Host "Re-running merge after conflict resolution..." -ForegroundColor Yellow
-        # Re-run the merge with the same backup
-        if ($localBackupPath -and (Test-Path $localBackupPath) -and $cloudSetFile) {
-            . "$PSScriptRoot\MergeSetFile.ps1" -LocalBackup $localBackupPath -CloudFile $cloudSetFile.FullName -UserName $userName
+        # Re-read the cloud content and re-apply our merged file if it still exists
+        if (Test-Path $currentMerged) {
+            & $gitCmd -C $repoDir add "Shared-Set/" *>$null
+            & $gitCmd -C $repoDir commit -m "Auto-sync card updates (conflict resolved)" *>$null
         }
-        & $gitCmd -C $repoDir add "Shared-Set/" *>$null
-        & $gitCmd -C $repoDir commit -m "Auto-sync card updates" *>$null
     }
     Start-Sleep -Seconds 1
 }
