@@ -959,7 +959,7 @@ card:
                     "Create This Card", "YesNo", "Question")
                 if ($confirm -ne "Yes") { return }
 
-                # 1. Auto-save MSE2
+                # 1. Auto-save MSE2 before closing
                 $mseProc = Get-Process "magicseteditor" -ErrorAction SilentlyContinue |
                            Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
                 if ($mseProc) {
@@ -969,97 +969,125 @@ card:
                         [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id)
                         Start-Sleep -Milliseconds 600
                         [System.Windows.Forms.SendKeys]::SendWait("^s")
-                        Start-Sleep -Milliseconds 2200   # wait for disk write
+                        Start-Sleep -Milliseconds 2200
                     } catch {}
                 }
 
                 # 2. Close MSE2 (releases zip lock)
                 Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
                 Stop-Process -Name "MenuAddon"      -Force -ErrorAction SilentlyContinue
-                Start-Sleep -Seconds 1
+                # Wait for process to fully exit
+                for ($w = 0; $w -lt 8; $w++) {
+                    Start-Sleep -Seconds 1
+                    if (-not (Get-Process "magicseteditor" -ErrorAction SilentlyContinue)) { break }
+                }
 
-                # 3. Write the card block directly into the zip
                 $launched = $false
                 try {
-                    $tmpZip = [System.IO.Path]::GetTempFileName() + ".mse-set"
+                    $gitExe2      = "$appData\mingit\cmd\git.exe"
+                    $credBypassGT = @("-c", "credential.helper=")
 
-                    $srcZip = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
-                    $dstZip = [System.IO.Compression.ZipFile]::Open($tmpZip, [System.IO.Compression.ZipArchiveMode]::Create)
+                    # 3. Fetch the very latest cloud state (don't reset - just fetch)
+                    & $gitExe2 -C $appData @credBypassGT fetch origin *>$null
 
-                    # Read existing "set" text
-                    $srcEnt = $srcZip.Entries | Where-Object { $_.Name -eq "set" }
-                    $sr2    = New-Object System.IO.StreamReader($srcEnt.Open(), [System.Text.Encoding]::UTF8)
-                    $setTxt = $sr2.ReadToEnd()
-                    $sr2.Dispose()
+                    # 4. Re-resolve the set file fresh (closure var may be stale)
+                    $liveSetFile = Get-ChildItem "$appData\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
+                    if (-not $liveSetFile) { throw "Could not find set file" }
 
-                    # Append card block
-                    $newContent = $setTxt.TrimEnd() + "`n" + $cardBlock + "`n"
+                    # 5. Read the CURRENT local file (which already has the Ctrl+S save from step 1)
+                    #    and the LATEST cloud content, then merge: cloud cards + new card
+                    $latestBlobHash = (& $gitExe2 -C $appData rev-parse "origin/main:$($liveSetFile.FullName.Replace("$appData\","").Replace("\","/"))" 2>$null).Trim()
+                    $cloudTxt = $null
+                    if ($latestBlobHash) {
+                        $tmpCloud = [System.IO.Path]::GetTempFileName() + ".mse-set"
+                        cmd /c "`"$gitExe2`" -C `"$appData`" cat-file blob $latestBlobHash > `"$tmpCloud`"" 2>$null
+                        try {
+                            $cz = [System.IO.Compression.ZipFile]::OpenRead($tmpCloud)
+                            $ce = $cz.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1
+                            $cs = New-Object System.IO.StreamReader($ce.Open(), [System.Text.Encoding]::UTF8)
+                            $cloudTxt = $cs.ReadToEnd(); $cs.Dispose(); $cz.Dispose()
+                        } catch {}
+                        Remove-Item $tmpCloud -Force -ErrorAction SilentlyContinue
+                    }
 
-                    # Write new "set" entry
-                    $dstEnt = $dstZip.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
-                    $ds     = $dstEnt.Open()
-                    $dwr    = New-Object System.IO.StreamWriter($ds, [System.Text.Encoding]::UTF8)
-                    $dwr.Write($newContent); $dwr.Flush(); $dwr.Dispose()
+                    # Fall back to local file if we couldn't get the cloud blob
+                    if (-not $cloudTxt) {
+                        $lz = [System.IO.Compression.ZipFile]::OpenRead($liveSetFile.FullName)
+                        $le = $lz.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1
+                        $ls = New-Object System.IO.StreamReader($le.Open(), [System.Text.Encoding]::UTF8)
+                        $cloudTxt = $ls.ReadToEnd(); $ls.Dispose(); $lz.Dispose()
+                    }
 
-                    # Copy all image/other entries unchanged
-                    foreach ($imgEnt in ($srcZip.Entries | Where-Object { $_.Name -ne "set" })) {
-                        $dImg = $dstZip.CreateEntry($imgEnt.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+                    # 6. Append the new card block to the (cloud-fresh) content
+                    $finalContent = $cloudTxt.TrimEnd() + "`n" + $cardBlock + "`n"
+
+                    # 7. Write the merged content back to the local set file
+                    $tmpZipNew = [System.IO.Path]::GetTempFileName() + ".mse-set"
+                    $srcZipImg = [System.IO.Compression.ZipFile]::OpenRead($liveSetFile.FullName)
+                    $dstZipNew = [System.IO.Compression.ZipFile]::Open($tmpZipNew, [System.IO.Compression.ZipArchiveMode]::Create)
+
+                    $newSetEnt = $dstZipNew.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
+                    $newSetStr = $newSetEnt.Open()
+                    $newSetWr  = New-Object System.IO.StreamWriter($newSetStr, [System.Text.Encoding]::UTF8)
+                    $newSetWr.Write($finalContent); $newSetWr.Flush(); $newSetWr.Dispose()
+
+                    foreach ($imgEnt in ($srcZipImg.Entries | Where-Object { $_.Name -ne "set" })) {
+                        $dImg = $dstZipNew.CreateEntry($imgEnt.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
                         $si = $imgEnt.Open(); $di = $dImg.Open()
                         $si.CopyTo($di); $si.Dispose(); $di.Dispose()
                     }
-                    $srcZip.Dispose(); $dstZip.Dispose()
+                    $srcZipImg.Dispose(); $dstZipNew.Dispose()
+                    Copy-Item $tmpZipNew $liveSetFile.FullName -Force
+                    Remove-Item $tmpZipNew -Force -ErrorAction SilentlyContinue
 
-                    # Swap in the new zip
-                    Copy-Item $tmpZip $setFile.FullName -Force
-                    Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+                    # 8. Update last_known file so the next full sync doesn't flag this
+                    #    card as a deletion candidate (it sees it in last_known -> not deleted)
+                    $safeUser    = $creator -replace '[\\/:*?"<>|]', '_'
+                    $lkFile      = "$appData\Shared-Set\$($liveSetFile.Directory.Name)\last_known_$safeUser.txt"
+                    if (-not (Test-Path (Split-Path $lkFile))) {
+                        $lkFile = "$appData\Shared-Set\last_known_$safeUser.txt"
+                    }
+                    # Find it properly - same directory as the set file
+                    $lkFile = "$($liveSetFile.Directory.FullName)\last_known_$safeUser.txt"
+                    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+                    $cardBytes = [System.Text.Encoding]::UTF8.GetBytes($cardBlock + "`n")
+                    $cardHex = ([System.BitConverter]::ToString($sha256.ComputeHash($cardBytes)) -replace "-","").Substring(0,16)
+                    $sha256.Dispose()
+                    $newEntry = "$now|$cardHex"
+                    # Append to existing last_known or create new
+                    if (Test-Path $lkFile) {
+                        $existing = Get-Content $lkFile | Where-Object { $_.Trim() -and $_ -notmatch "^$now" }
+                        Set-Content $lkFile -Value (($existing + $newEntry) -join "`n") -Encoding UTF8
+                    } else {
+                        Set-Content $lkFile -Value $newEntry -Encoding UTF8
+                    }
 
-                    # Commit and PUSH the card to the cloud immediately.
-                    # Without pushing, git reset --hard origin/main in SyncNow
-                    # would destroy the unpushed local commit and lose the card.
-                    try {
-                        $gitExe = "$appData\mingit\cmd\git.exe"
-                        $credBypassGT = @("-c", "credential.helper=")
-                        # Fetch latest and rebase to avoid push rejection
-                        & $gitExe -C $appData @credBypassGT fetch origin 2>$null | Out-Null
-                        & $gitExe -C $appData reset --hard origin/main 2>$null | Out-Null
-                    } catch {}
+                    # 9. Commit and push - retry up to 3x on rejection
+                    & $gitExe2 -C $appData add "Shared-Set/" *>$null
+                    & $gitExe2 -C $appData commit -m "Card added: $manaCost $superType ($rarStr) by $creator" *>$null
 
-                    # Re-read the cloud file and append the card (so we don't lose friend's changes)
-                    try {
-                        $srcZip2 = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
-                        $srcEnt2 = $srcZip2.Entries | Where-Object { $_.Name -eq "set" }
-                        $sr3 = New-Object System.IO.StreamReader($srcEnt2.Open(), [System.Text.Encoding]::UTF8)
-                        $cloudTxt = $sr3.ReadToEnd(); $sr3.Dispose(); $srcZip2.Dispose()
-
-                        $cloudPlusCard = $cloudTxt.TrimEnd() + "`n" + $cardBlock + "`n"
-
-                        $tmpZip2 = [System.IO.Path]::GetTempFileName() + ".mse-set"
-                        $srcZip3 = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
-                        $dstZip2 = [System.IO.Compression.ZipFile]::Open($tmpZip2, [System.IO.Compression.ZipArchiveMode]::Create)
-                        $dstEnt2 = $dstZip2.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
-                        $ds2 = $dstEnt2.Open()
-                        $dwr2 = New-Object System.IO.StreamWriter($ds2, [System.Text.Encoding]::UTF8)
-                        $dwr2.Write($cloudPlusCard); $dwr2.Flush(); $dwr2.Dispose()
-                        foreach ($imgEnt2 in ($srcZip3.Entries | Where-Object { $_.Name -ne "set" })) {
-                            $dImg2 = $dstZip2.CreateEntry($imgEnt2.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
-                            $si2 = $imgEnt2.Open(); $di2 = $dImg2.Open()
-                            $si2.CopyTo($di2); $si2.Dispose(); $di2.Dispose()
+                    $pushOk = $false
+                    for ($pushTry = 1; $pushTry -le 3; $pushTry++) {
+                        & $gitExe2 -C $appData @credBypassGT push origin main 2>&1 | Out-Null
+                        if ($LASTEXITCODE -eq 0) { $pushOk = $true; break }
+                        # Push rejected - fetch, rebase, retry
+                        & $gitExe2 -C $appData @credBypassGT fetch origin *>$null
+                        & $gitExe2 -C $appData rebase origin/main *>$null
+                        if ($LASTEXITCODE -ne 0) {
+                            & $gitExe2 -C $appData rebase --abort *>$null
                         }
-                        $srcZip3.Dispose(); $dstZip2.Dispose()
-                        Copy-Item $tmpZip2 $setFile.FullName -Force
-                        Remove-Item $tmpZip2 -Force -ErrorAction SilentlyContinue
-                    } catch {}
+                        Start-Sleep -Seconds 1
+                    }
 
-                    try {
-                        & $gitExe -C $appData add "Shared-Set/" 2>$null | Out-Null
-                        & $gitExe -C $appData commit -m "Card added: $manaCost $superType ($rarStr) by $creator" 2>$null | Out-Null
-                        & $gitExe -C $appData @credBypassGT push origin main 2>$null | Out-Null
-                    } catch {}
+                    if (-not $pushOk) {
+                        [System.Windows.MessageBox]::Show(
+                            "Card was added locally but could not be uploaded after 3 attempts.`nPlease press Sync soon to upload it.",
+                            "Upload Warning", "OK", "Warning")
+                    }
 
-                    # 4. Relaunch via VBS (preserves MenuAddon + sync engine) with set path to skip welcome screen
-                    Start-Process "wscript.exe" -ArgumentList "`"$appData\Launch_Silent.vbs`" `"$($setFile.FullName)`""
+                    # 10. Relaunch MSE2 with the updated set file
+                    Start-Process "wscript.exe" -ArgumentList "`"$appData\Launch_Silent.vbs`" `"$($liveSetFile.FullName)`""
                     $launched = $true
-
 
                     [System.Windows.MessageBox]::Show(
                         "Card added!`n`n$manaCost $superType ($rarStr) - by $creator`n`nMSE2 is reopening with your new card ready to edit.",
