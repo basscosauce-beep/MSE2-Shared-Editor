@@ -23,7 +23,7 @@ try {
     # =========================================================================
     # XAML
     # =========================================================================
-    [xml]$xaml = @'
+    $xamlStr = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Graveyard" Height="720" Width="600"
@@ -96,6 +96,7 @@ try {
 </Window>
 '@
 
+    $xaml   = [xml]$xamlStr
     $reader = New-Object System.Xml.XmlNodeReader $xaml
     $window = [System.Windows.Markup.XamlReader]::Load($reader)
 
@@ -104,8 +105,7 @@ try {
     $panelLost  = $window.FindName("PanelLost")
     $btnRescan  = $window.FindName("BtnRescan")
 
-    # Update title to include set name
-    $window.Title = "Graveyard — $($setFile.BaseName)"
+    $window.Title = "Graveyard - $($setFile.BaseName)"
 
     # =========================================================================
     # Helpers
