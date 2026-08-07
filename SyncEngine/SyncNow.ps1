@@ -135,7 +135,7 @@ if ($branch -ne "main") {
 # STEP 1: Back up the local set file AFTER MSE2 is closed.
 # Retry up to 5x to handle cases where MSE2 was mid-write when killed.
 # ---------------------------------------------------------------
-$setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Select-Object -First 1
+$setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" | Where-Object { $_.Name -notlike "*.bak" } | Select-Object -First 1
 $localBackupPath = $null
 if ($setFile -and (Test-Path $setFile.FullName)) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -180,6 +180,18 @@ if ($setFile -and (Test-Path $setFile.FullName)) {
         Write-Host "=========================================================" -ForegroundColor Red
         Write-Host "" -ForegroundColor Red
     }
+    # ---------------------------------------------------------------
+    # SAFETY NET: Save a timestamped backup before the git reset.
+    # Even if merge fails, these files are recoverable forever.
+    # ---------------------------------------------------------------
+    $safeBackupDir = "$repoDir\Shared-Set\_pre_sync_backups"
+    if (-not (Test-Path $safeBackupDir)) { New-Item -ItemType Directory -Path $safeBackupDir -Force | Out-Null }
+    $safeStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+    Copy-Item $setFile.FullName "$safeBackupDir\backup_${safeStamp}_${userName}.mse-set" -Force
+    # Keep only the 20 most recent backups per user
+    Get-ChildItem $safeBackupDir -Filter "backup_*_${userName}.mse-set" |
+        Sort-Object LastWriteTime -Descending | Select-Object -Skip 20 |
+        Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
 # ---------------------------------------------------------------
