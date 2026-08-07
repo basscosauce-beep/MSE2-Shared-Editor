@@ -1,0 +1,552 @@
+# CloudSync.ps1
+# Standalone Cloud Sync review window. The user opens this from the MSE2 menu bar,
+# reviews what will change, ticks the confirmation checkbox, then clicks Sync Now.
+# Sync Now writes decisions to a temp file and launches SyncNow.ps1 -SkipPreview.
+
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression
+
+try {
+    $appData  = "$env:LOCALAPPDATA\MSE2_Shared_Cloud"
+    $gitExe   = "$appData\mingit\cmd\git.exe"
+    $syncScript = "$appData\SyncEngine\SyncNow.ps1"
+    $env:GIT_TERMINAL_PROMPT = "0"
+    $env:GIT_ASKPASS         = "echo"
+
+    $p1 = "ghp_2g4dOrh3klYwVMo6o"
+    $p2 = "FNfD8iUKfATTq3ezyS4"
+    $remoteUrl = "https://basscosauce-beep:$p1$p2@github.com/basscosauce-beep/MSE2-Shared-Editor.git"
+
+    # Read local user name
+    $creatorFile = "$appData\creator.txt"
+    $myName = if (Test-Path $creatorFile) { (Get-Content $creatorFile -Raw).Trim() } else { "Unknown" }
+    $safeUser = $myName -replace '[\\/:*?"<>|]', '_'
+
+    # Find set file (exclude backups)
+    $setFile = Get-ChildItem "$appData\Shared-Set" -Recurse -Filter "*.mse-set" |
+        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*\_pre_sync_backups\*" } |
+        Select-Object -First 1
+    if (-not $setFile) { throw "Could not find the shared set file." }
+
+    $setDir      = $setFile.DirectoryName
+    $draftFile   = "$setDir\draft_cards_${safeUser}.txt"
+    $tombstoneFile = "$setDir\deleted_cards.txt"
+
+    # =========================================================================
+    # XAML
+    # =========================================================================
+    $xamlStr = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Cloud Sync" Height="720" Width="660"
+        WindowStartupLocation="CenterScreen" Background="#0A0A14" Foreground="White">
+  <Window.Resources>
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontFamily" Value="Segoe UI"/>
+    </Style>
+    <Style TargetType="Button">
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="14,7"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontFamily" Value="Segoe UI"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style TargetType="TabItem">
+      <Setter Property="Background" Value="#111124"/>
+      <Setter Property="Foreground" Value="#888"/>
+      <Setter Property="Padding" Value="16,7"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TabItem">
+            <Border Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4,4,0,0" Margin="0,0,2,0">
+              <ContentPresenter ContentSource="Header" Margin="14,5"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#2563EB"/>
+                <Setter Property="Foreground" Value="White"/>
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#1E2A4A"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <!-- Header -->
+    <Border Grid.Row="0" Background="#0F1629" Padding="20,14">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0">
+          <TextBlock Name="TitleText" Text="Cloud Sync" FontSize="20" FontWeight="Bold" Foreground="#60A5FA"/>
+          <TextBlock Name="SetNameText" Text="Loading..." FontSize="11" Foreground="#555" Margin="0,3,0,0"/>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+          <TextBlock Name="LastCheckedText" Text="" Foreground="#555" FontSize="11" VerticalAlignment="Center" Margin="0,0,12,0"/>
+          <Button Name="BtnRefresh" Content="Refresh" Background="#1E293B"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- Summary bar -->
+    <Border Grid.Row="1" Background="#0C1022" Padding="20,9" Name="SummaryBar">
+      <StackPanel Name="SummaryPanel" Orientation="Horizontal"/>
+    </Border>
+
+    <!-- Tabs -->
+    <TabControl Grid.Row="2" Name="Tabs" Background="#0A0A14" BorderThickness="0" Padding="0">
+      <TabItem Header="Changes" Name="TabChanges">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8,16,8">
+          <StackPanel Name="CardList"/>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="History" Name="TabHistory">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8,16,8">
+          <StackPanel Name="HistoryList"/>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+
+    <!-- Footer -->
+    <Border Grid.Row="3" Background="#0F1629" Padding="20,14">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <CheckBox Name="ChkReviewed" Grid.Column="0" VerticalAlignment="Center"
+                  Content="I have reviewed all changes above" IsEnabled="False"/>
+        <Button Name="BtnSync" Grid.Column="1" Content="Sync Now" IsEnabled="False"
+                Background="#1E3A1E" Foreground="#666" FontWeight="Bold" FontSize="14"
+                Padding="24,10"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>
+'@
+
+    $xaml   = [xml]$xamlStr
+    $reader = New-Object System.Xml.XmlNodeReader $xaml
+    $window = [System.Windows.Markup.XamlReader]::Load($reader)
+
+    $titleText      = $window.FindName("TitleText")
+    $setNameText    = $window.FindName("SetNameText")
+    $lastCheckedText= $window.FindName("LastCheckedText")
+    $summaryPanel   = $window.FindName("SummaryPanel")
+    $cardList       = $window.FindName("CardList")
+    $historyList    = $window.FindName("HistoryList")
+    $chkReviewed    = $window.FindName("ChkReviewed")
+    $btnSync        = $window.FindName("BtnSync")
+    $btnRefresh     = $window.FindName("BtnRefresh")
+    $summaryBar     = $window.FindName("SummaryBar")
+
+    $window.Title    = "Cloud Sync"
+    $setNameText.Text = $setFile.BaseName
+
+    $conv = New-Object System.Windows.Media.BrushConverter
+
+    # State shared across scan/sync
+    $script:mergedMap  = $null
+    $script:cloudMap   = $null
+    $script:commitMap  = $null
+    $script:mergedContent = $null
+    $script:hasChanges = $false
+
+    # =========================================================================
+    # Helpers
+    # =========================================================================
+    function Read-ZipSet([string]$path) {
+        try {
+            $z  = [System.IO.Compression.ZipFile]::OpenRead($path)
+            $e  = $z.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1
+            if (-not $e) { $z.Dispose(); return $null }
+            $sr = New-Object System.IO.StreamReader($e.Open(), [System.Text.Encoding]::UTF8)
+            $txt = $sr.ReadToEnd(); $sr.Dispose(); $z.Dispose()
+            return $txt
+        } catch { return $null }
+    }
+
+    function Parse-CardMap([string]$content) {
+        $map = [System.Collections.Specialized.OrderedDictionary]::new()
+        if (-not $content) { return $map }
+        $content -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
+            $block = ($_ -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
+            if ($block -match "(?m)^\s*time_created:\s*([^\r\n]+)") {
+                $tc = $matches[1].Trim()
+                if (-not $map.Contains($tc)) { $map[$tc] = $block }
+            }
+        }
+        return $map
+    }
+
+    function Get-Field([string]$block, [string]$field) {
+        if ($block -match "(?m)^\s*${field}:\s*(.+)") { return $matches[1].Trim() }
+        return ""
+    }
+
+    function New-SummaryPill([string]$text, [string]$color) {
+        $b = New-Object System.Windows.Controls.Border
+        $b.Background   = $conv.ConvertFromString($color)
+        $b.CornerRadius = "12"
+        $b.Padding      = [System.Windows.Thickness]::new(12, 4, 12, 4)
+        $b.Margin       = [System.Windows.Thickness]::new(0, 0, 8, 0)
+        $tb = New-Object System.Windows.Controls.TextBlock
+        $tb.Text = $text; $tb.FontSize = 12; $tb.FontWeight = "SemiBold"; $tb.Foreground = "White"
+        $b.Child = $tb
+        return $b
+    }
+
+    function New-SectionHeader([string]$text, [string]$bgColor) {
+        $b = New-Object System.Windows.Controls.Border
+        $b.Background   = $conv.ConvertFromString($bgColor)
+        $b.CornerRadius = "4"
+        $b.Margin       = [System.Windows.Thickness]::new(0, 14, 0, 4)
+        $b.Padding      = [System.Windows.Thickness]::new(12, 6, 12, 6)
+        $tb = New-Object System.Windows.Controls.TextBlock
+        $tb.Text = $text; $tb.FontWeight = "Bold"; $tb.FontSize = 12; $tb.Foreground = "White"
+        $b.Child = $tb
+        return $b
+    }
+
+    function New-CardRow($entry, [string]$category) {
+        $name    = Get-Field $entry.Block "name";    if (-not $name)    { $name    = "(unnamed)" }
+        $creator = Get-Field $entry.Block "creator"; if (-not $creator) { $creator = "?" }
+        $rarity  = Get-Field $entry.Block "rarity"
+
+        $capturedTC    = $entry.TC
+        $capturedBlock = $entry.Block
+        $capturedConv  = $conv
+
+        $outer = New-Object System.Windows.Controls.Border
+        $outer.Background   = $conv.ConvertFromString("#0F1A2E")
+        $outer.Margin       = [System.Windows.Thickness]::new(0, 2, 0, 2)
+        $outer.Padding      = [System.Windows.Thickness]::new(14, 10, 14, 10)
+        $outer.CornerRadius = "5"
+        $capturedOuter = $outer
+
+        $grid = New-Object System.Windows.Controls.Grid
+        $c1 = New-Object System.Windows.Controls.ColumnDefinition
+        $c1.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+        $c2 = New-Object System.Windows.Controls.ColumnDefinition
+        $c2.Width = [System.Windows.GridLength]::Auto
+        $grid.ColumnDefinitions.Add($c1); $grid.ColumnDefinitions.Add($c2)
+
+        # Left: card info
+        $info = New-Object System.Windows.Controls.StackPanel
+        $nameBlock = New-Object System.Windows.Controls.TextBlock
+        $nameBlock.Text = $name; $nameBlock.FontSize = 13; $nameBlock.FontWeight = "SemiBold"
+        $info.Children.Add($nameBlock) | Out-Null
+        $meta = New-Object System.Windows.Controls.TextBlock
+        $meta.Text = "$creator  |  $rarity"
+        $meta.FontSize = 11; $meta.Foreground = "#667"; $meta.Margin = [System.Windows.Thickness]::new(0,2,0,0)
+        $info.Children.Add($meta) | Out-Null
+        [System.Windows.Controls.Grid]::SetColumn($info, 0)
+        $grid.Children.Add($info) | Out-Null
+
+        # Right: action button
+        $btnPanel = New-Object System.Windows.Controls.StackPanel
+        $btnPanel.VerticalAlignment = "Center"
+        [System.Windows.Controls.Grid]::SetColumn($btnPanel, 1)
+
+        if ($category -eq "adding") {
+            $btn = New-Object System.Windows.Controls.Button
+            $btn.Content    = "Remove"
+            $btn.Background = $conv.ConvertFromString("#7F1D1D")
+            $btn.ToolTip    = "Defer this card - it will appear in the next sync instead"
+            $capturedBtn    = $btn
+            $btn.add_Click({
+                if ($script:commitMap.Contains($capturedTC)) { $script:commitMap.Remove($capturedTC) }
+                if ($draftFile) { Add-Content $draftFile -Value ($capturedBlock.TrimEnd() + "`n") -Encoding UTF8 }
+                $capturedOuter.Background = $capturedConv.ConvertFromString("#0A0A0A")
+                $capturedOuter.Opacity    = 0.4
+                $capturedBtn.IsEnabled    = $false
+                $capturedBtn.Content      = "Deferred"
+            }.GetNewClosure())
+            $btnPanel.Children.Add($btn) | Out-Null
+        }
+        elseif ($category -eq "deleting") {
+            $btn = New-Object System.Windows.Controls.Button
+            $btn.Content    = "Keep"
+            $btn.Background = $conv.ConvertFromString("#14532D")
+            $btn.ToolTip    = "Rescue this card - restore it into the set"
+            $capturedBtn    = $btn
+            $btn.add_Click({
+                if (-not $script:commitMap.Contains($capturedTC)) { $script:commitMap[$capturedTC] = $capturedBlock }
+                $capturedOuter.Background = $capturedConv.ConvertFromString("#0A1A0A")
+                $capturedOuter.Opacity    = 0.6
+                $capturedBtn.IsEnabled    = $false
+                $capturedBtn.Content      = "Kept"
+                $capturedBtn.Background   = $capturedConv.ConvertFromString("#333")
+            }.GetNewClosure())
+            $btnPanel.Children.Add($btn) | Out-Null
+        }
+
+        $grid.Children.Add($btnPanel) | Out-Null
+        $outer.Child = $grid
+        return $outer
+    }
+
+    function New-HistoryRow([string]$hash, [string]$dateStr, [string]$msg) {
+        $b = New-Object System.Windows.Controls.Border
+        $b.Background   = $conv.ConvertFromString("#0F1A2E")
+        $b.Margin       = [System.Windows.Thickness]::new(0, 2, 0, 2)
+        $b.Padding      = [System.Windows.Thickness]::new(14, 8, 14, 8)
+        $b.CornerRadius = "4"
+        $sp = New-Object System.Windows.Controls.StackPanel
+        $t1 = New-Object System.Windows.Controls.TextBlock
+        $t1.Text = $msg; $t1.FontSize = 12; $t1.FontWeight = "SemiBold"
+        $sp.Children.Add($t1) | Out-Null
+        $t2 = New-Object System.Windows.Controls.TextBlock
+        $t2.Text = "$dateStr  [$hash]"; $t2.FontSize = 10; $t2.Foreground = "#555"
+        $t2.Margin = [System.Windows.Thickness]::new(0, 2, 0, 0)
+        $sp.Children.Add($t2) | Out-Null
+        $b.Child = $sp
+        return $b
+    }
+
+    # =========================================================================
+    # Update checkbox and sync button state
+    # =========================================================================
+    function Update-SyncButton {
+        if ($script:hasChanges) {
+            if ($chkReviewed.IsChecked -eq $true) {
+                $btnSync.IsEnabled   = $true
+                $btnSync.Background  = $conv.ConvertFromString("#16A34A")
+                $btnSync.Foreground  = "White"
+            } else {
+                $btnSync.IsEnabled   = $false
+                $btnSync.Background  = $conv.ConvertFromString("#1E3A1E")
+                $btnSync.Foreground  = "#666"
+            }
+        } else {
+            # No changes: sync is always ready (just pulls)
+            $btnSync.IsEnabled   = $true
+            $btnSync.Background  = $conv.ConvertFromString("#1D4ED8")
+            $btnSync.Foreground  = "White"
+        }
+    }
+
+    # =========================================================================
+    # Main scan function
+    # =========================================================================
+    function Invoke-Scan {
+        $cardList.Children.Clear()
+        $summaryPanel.Children.Clear()
+        $historyList.Children.Clear()
+        $chkReviewed.IsChecked  = $false
+        $chkReviewed.IsEnabled  = $false
+        $btnSync.IsEnabled      = $false
+        $btnSync.Background     = $conv.ConvertFromString("#1E3A1E")
+        $btnSync.Foreground     = "#666"
+        $lastCheckedText.Text   = "Fetching..."
+        $window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Render, [action]{})
+
+        try {
+            # Fetch latest from remote (read-only, no file changes)
+            & $gitExe -C $appData -c "credential.helper=" remote set-url origin $remoteUrl *>$null
+            & $gitExe -C $appData -c "credential.helper=" fetch origin *>$null
+
+            $lastCheckedText.Text = "Last checked: $(Get-Date -Format 'h:mm tt')"
+
+            # Get the set path relative to repo
+            $setRelPath = $setFile.FullName.Substring($appData.TrimEnd('\').Length + 1).Replace("\", "/")
+
+            # Extract cloud (origin/main) version into a temp file
+            $cloudBlob = (& $gitExe -C $appData rev-parse "origin/main:$setRelPath" 2>$null).Trim()
+            $cloudTmp  = "$env:TEMP\cloudsync_cloud_$([System.IO.Path]::GetRandomFileName()).mse-set"
+            if ($cloudBlob) {
+                cmd /c ("`"" + $gitExe + "`" -C `"" + $appData + "`" cat-file blob " + $cloudBlob + " > `"" + $cloudTmp + "`"") 2>$null
+            }
+
+            $localContent = Read-ZipSet $setFile.FullName
+            $cloudContent = if ((Test-Path $cloudTmp) -and (Get-Item $cloudTmp).Length -gt 0) {
+                Read-ZipSet $cloudTmp
+            } else { $null }
+            Remove-Item $cloudTmp -Force -ErrorAction SilentlyContinue
+
+            if (-not $localContent) {
+                $tb = New-Object System.Windows.Controls.TextBlock
+                $tb.Text = "Could not read local set file."; $tb.Foreground = "#E74C3C"
+                $cardList.Children.Add($tb) | Out-Null
+                return
+            }
+            if (-not $cloudContent) {
+                $tb = New-Object System.Windows.Controls.TextBlock
+                $tb.Text = "Could not fetch cloud set. Check your internet connection."; $tb.Foreground = "#E74C3C"
+                $cardList.Children.Add($tb) | Out-Null
+                return
+            }
+
+            $script:mergedContent = $localContent
+            $script:mergedMap     = Parse-CardMap $localContent
+            $script:cloudMap      = Parse-CardMap $cloudContent
+
+            # commitMap starts as a copy of the local (merged) state
+            $script:commitMap = [System.Collections.Specialized.OrderedDictionary]::new()
+            foreach ($k in $script:mergedMap.Keys) { $script:commitMap[$k] = $script:mergedMap[$k] }
+
+            # Categorize
+            $adding   = @()
+            $deleting = @()
+            $changed  = @()
+            foreach ($tc in $script:mergedMap.Keys) {
+                if (-not $script:cloudMap.Contains($tc)) {
+                    $adding += @{ TC=$tc; Block=$script:mergedMap[$tc] }
+                } elseif ($script:mergedMap[$tc] -ne $script:cloudMap[$tc]) {
+                    $changed += @{ TC=$tc; Block=$script:mergedMap[$tc]; CloudBlock=$script:cloudMap[$tc] }
+                }
+            }
+            foreach ($tc in $script:cloudMap.Keys) {
+                if (-not $script:mergedMap.Contains($tc)) {
+                    $deleting += @{ TC=$tc; Block=$script:cloudMap[$tc] }
+                }
+            }
+
+            $totalChanges = $adding.Count + $deleting.Count + $changed.Count
+            $script:hasChanges = $totalChanges -gt 0
+
+            # Summary pills
+            if ($adding.Count -gt 0)  { $summaryPanel.Children.Add((New-SummaryPill "+$($adding.Count) adding" "#15803D"))  | Out-Null }
+            if ($deleting.Count -gt 0) { $summaryPanel.Children.Add((New-SummaryPill "-$($deleting.Count) deleting" "#B91C1C")) | Out-Null }
+            if ($changed.Count -gt 0)  { $summaryPanel.Children.Add((New-SummaryPill "~$($changed.Count) changed" "#1D4ED8"))  | Out-Null }
+            if ($totalChanges -eq 0)   { $summaryPanel.Children.Add((New-SummaryPill "Up to date" "#374151"))                   | Out-Null }
+
+            # Card sections
+            if ($adding.Count -gt 0) {
+                $cardList.Children.Add((New-SectionHeader "ADDING - Your new cards going up" "#14532D")) | Out-Null
+                foreach ($e in $adding) { $cardList.Children.Add((New-CardRow $e "adding")) | Out-Null }
+            }
+            if ($deleting.Count -gt 0) {
+                $cardList.Children.Add((New-SectionHeader "DELETING - Will be removed for everyone" "#7F1D1D")) | Out-Null
+                foreach ($e in $deleting) { $cardList.Children.Add((New-CardRow $e "deleting")) | Out-Null }
+            }
+            if ($changed.Count -gt 0) {
+                $cardList.Children.Add((New-SectionHeader "CHANGED - Edits since last sync" "#1E3A5F")) | Out-Null
+                foreach ($e in $changed) { $cardList.Children.Add((New-CardRow $e "changed")) | Out-Null }
+            }
+            if ($totalChanges -eq 0) {
+                $tb = New-Object System.Windows.Controls.TextBlock
+                $tb.Text = "Your set is up to date with the cloud. Safe to sync."
+                $tb.Foreground = "#4B5563"; $tb.FontStyle = "Italic"; $tb.FontSize = 13
+                $tb.HorizontalAlignment = "Center"; $tb.Margin = [System.Windows.Thickness]::new(0,30,0,0)
+                $cardList.Children.Add($tb) | Out-Null
+            }
+
+            # Checkbox visibility
+            if ($script:hasChanges) {
+                $chkReviewed.IsEnabled = $true
+                $chkReviewed.Content   = "I have reviewed all $totalChanges change(s) above"
+            } else {
+                $chkReviewed.IsEnabled = $false
+                $chkReviewed.Content   = "I have reviewed all changes above"
+            }
+
+            # History tab
+            $logLines = @(& $gitExe -C $appData log --oneline --format="%h|%ai|%s" -20 2>$null)
+            if ($logLines) {
+                foreach ($line in $logLines) {
+                    $parts = $line -split "\|", 3
+                    if ($parts.Count -ge 3) {
+                        $hsh = $parts[0].Trim()
+                        $dt  = $parts[1].Trim()
+                        $msg = $parts[2].Trim()
+                        try { $dtParsed = [datetime]::Parse($dt); $dt = $dtParsed.ToString("MMM d, h:mm tt") } catch {}
+                        $historyList.Children.Add((New-HistoryRow $hsh $dt $msg)) | Out-Null
+                    }
+                }
+            } else {
+                $tb = New-Object System.Windows.Controls.TextBlock
+                $tb.Text = "No sync history found."; $tb.Foreground = "#4B5563"; $tb.FontStyle = "Italic"
+                $historyList.Children.Add($tb) | Out-Null
+            }
+
+        } catch {
+            $tb = New-Object System.Windows.Controls.TextBlock
+            $tb.Text = "Scan error: $($_.Exception.Message)"; $tb.Foreground = "#E74C3C"
+            $cardList.Children.Add($tb) | Out-Null
+        }
+
+        Update-SyncButton
+    }
+
+    # =========================================================================
+    # Events
+    # =========================================================================
+    $chkReviewed.add_Checked({   Update-SyncButton })
+    $chkReviewed.add_Unchecked({ Update-SyncButton })
+
+    $btnRefresh.add_Click({ Invoke-Scan })
+
+    $btnSync.add_Click({
+        # Disable buttons immediately to prevent double-click
+        $btnSync.IsEnabled    = $false
+        $btnRefresh.IsEnabled = $false
+        $btnSync.Content      = "Syncing..."
+
+        try {
+            # Write predecided Remove/Keep state to a temp file for SyncNow to consume
+            $predecidedFile = "$env:TEMP\cloudsync_decisions_$([System.IO.Path]::GetRandomFileName()).txt"
+            $lines = @()
+            foreach ($tc in $script:commitMap.Keys) { $lines += "KEEP:$tc" }
+            # Cards in mergedMap but NOT in commitMap were Removed by user
+            foreach ($tc in $script:mergedMap.Keys) {
+                if (-not $script:commitMap.Contains($tc)) { $lines += "REMOVE:$tc" }
+            }
+            # Cards in commitMap but NOT in mergedMap were Kept (rescued deletions)
+            foreach ($tc in $script:commitMap.Keys) {
+                if (-not $script:mergedMap.Contains($tc)) { $lines += "RESTORE:$tc|$($script:commitMap[$tc])" }
+            }
+            Set-Content $predecidedFile -Value $lines -Encoding UTF8
+
+            # Launch SyncNow with -SkipPreview flag
+            $syncArgs = @(
+                "-ExecutionPolicy", "Bypass",
+                "-WindowStyle",     "Normal",
+                "-File",            $syncScript,
+                "-SkipPreview",
+                "-PredecidedFile",  $predecidedFile
+            )
+            Start-Process "powershell.exe" -ArgumentList $syncArgs
+
+            # Close this window - SyncNow will kill MSE2 and reopen it
+            $window.Close()
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Sync Launch Error") | Out-Null
+            $btnSync.IsEnabled    = $true
+            $btnRefresh.IsEnabled = $true
+            $btnSync.Content      = "Sync Now"
+        }
+    })
+
+    $window.add_Loaded({
+        $window.Dispatcher.BeginInvoke(
+            [System.Windows.Threading.DispatcherPriority]::Background,
+            [action]{ Invoke-Scan })
+    })
+
+    $window.ShowDialog() | Out-Null
+
+} catch {
+    [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Cloud Sync Error")
+}

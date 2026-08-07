@@ -1,3 +1,8 @@
+param(
+    [switch]$SkipPreview,     # Set by CloudSync.ps1 - preview was already done there
+    [string]$PredecidedFile   # Path to temp file with KEEP:/REMOVE:/RESTORE: decisions
+)
+
 $Host.UI.RawUI.WindowTitle = "Magic Set Editor - Sync v3.4"
 
 # ---------------------------------------------------------------------------
@@ -287,63 +292,94 @@ if ($cloudSetFile) {
 
 
 # ---------------------------------------------------------------
-# STEP 5: Sync Preview - show changes before committing
-# User must confirm before anything is pushed to GitHub
+# STEP 5: Apply Remove/Keep decisions made in the Cloud Sync window.
+# CloudSync.ps1 writes KEEP:, REMOVE:, RESTORE: lines to $PredecidedFile
+# before launching this script. If called without -SkipPreview (e.g. by
+# a script or directly), this block is skipped and the sync proceeds as-is.
 # ---------------------------------------------------------------
-$previewResult = "OK"  # default: proceed (in case preview script fails to launch)
-if ($cloudSetFile) {
-    $resultFile  = "$env:TEMP\sync_preview_result_$([System.IO.Path]::GetRandomFileName()).txt"
-    # Must use $draftUserName (machine-specific) to match the key SyncNow writes to
-    $safeUserDP  = $draftUserName -replace '[\\/:*?"<>|]', '_'
-    $dpDraftFile = "$($cloudSetFile.DirectoryName)\draft_cards_${safeUserDP}.txt"
+if ($SkipPreview -and $PredecidedFile -and (Test-Path $PredecidedFile) -and $cloudSetFile) {
+    Write-Host "Applying your sync decisions..." -ForegroundColor Cyan
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        Add-Type -AssemblyName System.IO.Compression
 
-    # Pass the cloud BASELINE (origin/main blob) as a temp file for diffing
-    $cloudBaselineTemp = "$env:TEMP\sync_preview_cloud_$([System.IO.Path]::GetRandomFileName()).mse-set"
-    $cloudRelPath = $cloudSetFile.FullName.Substring($repoDir.TrimEnd('\').Length + 1).Replace("\", "/")
-    $cloudBlob = (& $gitCmd -C $repoDir rev-parse "origin/main:$cloudRelPath" 2>$null).Trim()
-    if ($cloudBlob) {
-        cmd /c ("`"" + $gitCmd + "`" -C `"" + $repoDir + "`" cat-file blob " + $cloudBlob + " > `"" + $cloudBaselineTemp + "`"") 2>$null
-    }
-    # Fall back to the current cloud file if blob extraction failed
-    if (-not (Test-Path $cloudBaselineTemp) -or (Get-Item $cloudBaselineTemp).Length -eq 0) {
-        Copy-Item $cloudSetFile.FullName $cloudBaselineTemp -Force
-    }
+        $decisions = Get-Content $PredecidedFile -Encoding UTF8
+        Remove-Item $PredecidedFile -Force -ErrorAction SilentlyContinue
 
-    Write-Host "Opening sync preview..." -ForegroundColor Cyan
-    $previewArgList = @(
-        "-ExecutionPolicy", "Bypass",
-        "-File", "$PSScriptRoot\SyncPreview.ps1",
-        "-MergedFile", $cloudSetFile.FullName,
-        "-CloudFile",  $cloudBaselineTemp,
-        "-ResultFile", $resultFile,
-        "-DraftFile",  $dpDraftFile,
-        "-UserName",   $userName
-    )
-    $previewProc = Start-Process "powershell.exe" -ArgumentList $previewArgList -PassThru
-    $previewProc.WaitForExit()
+        $removeSet  = New-Object System.Collections.Generic.HashSet[string]
+        $restoreMap = @{}
+        foreach ($dec in $decisions) {
+            if ($dec -match '^REMOVE:(.+)$')           { $removeSet.Add($matches[1].Trim()) | Out-Null }
+            if ($dec -match '^RESTORE:([^|]+)[|](.+)$') { $restoreMap[$matches[1].Trim()] = $matches[2] }
+        }
 
-    Remove-Item $cloudBaselineTemp -Force -ErrorAction SilentlyContinue
+        if ($removeSet.Count -gt 0 -or $restoreMap.Count -gt 0) {
+            # Read the current merged set text
+            $rz  = [System.IO.Compression.ZipFile]::OpenRead($cloudSetFile.FullName)
+            $re  = $rz.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1
+            $rsr = New-Object System.IO.StreamReader($re.Open(), [System.Text.Encoding]::UTF8)
+            $mergedTxt = $rsr.ReadToEnd(); $rsr.Dispose(); $rz.Dispose()
 
-    if (Test-Path $resultFile) {
-        $previewResult = (Get-Content $resultFile -Raw).Trim()
-        Remove-Item $resultFile -Force -ErrorAction SilentlyContinue
+            # Parse into ordered card map keyed by time_created
+            $cmap = [System.Collections.Specialized.OrderedDictionary]::new()
+            $mergedTxt -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
+                $blk = ($_ -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
+                if ($blk -match "(?m)^\s*time_created:\s*([^\r\n]+)") {
+                    $tc = $matches[1].Trim()
+                    if (-not $cmap.Contains($tc)) { $cmap[$tc] = $blk }
+                }
+            }
+
+            # Apply removals and restores
+            foreach ($rtc in @($removeSet))    { if ($cmap.Contains($rtc))    { $cmap.Remove($rtc) } }
+            foreach ($rtc in $restoreMap.Keys) { if (-not $cmap.Contains($rtc)) { $cmap[$rtc] = $restoreMap[$rtc] } }
+
+            # Extract file header (everything before first card: block)
+            $hdr = if ($mergedTxt -match "(?s)^(.*?)\r?\ncard:") { $matches[1] + "`r`n" } else { "" }
+
+            # Extract trailing section (keywords / version_control / etc. after last card)
+            $trail   = ""
+            $lastIdx = $mergedTxt.LastIndexOf("`ncard:")
+            if ($lastIdx -ge 0) {
+                $after = $mergedTxt.Substring($lastIdx)
+                if ($after -match "(?s)`r?`n(keyword:|version_control:|apprentice_code:)") {
+                    $ts = $after.IndexOf("`r`n" + $matches[1])
+                    if ($ts -lt 0) { $ts = $after.IndexOf("`n" + $matches[1]) }
+                    if ($ts -ge 0) { $trail = "`r`n" + $after.Substring($ts).TrimStart("`r", "`n") }
+                }
+            }
+
+            # Rebuild set text
+            $newTxt = $hdr
+            foreach ($tc in $cmap.Keys) {
+                $blk = $cmap[$tc]
+                if (-not $blk.StartsWith("card:")) { $blk = "card:`r`n" + $blk }
+                $newTxt += $blk.TrimEnd() + "`r`n"
+            }
+            $newTxt += $trail
+
+            # Write back into zip
+            $tmpZ   = [System.IO.Path]::GetTempFileName() + ".mse-set"
+            $srcZip = [System.IO.Compression.ZipFile]::OpenRead($cloudSetFile.FullName)
+            $dstZip = [System.IO.Compression.ZipFile]::Open($tmpZ, [System.IO.Compression.ZipArchiveMode]::Create)
+            $se = $dstZip.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
+            $sw = New-Object System.IO.StreamWriter($se.Open(), [System.Text.Encoding]::UTF8)
+            $sw.Write($newTxt); $sw.Flush(); $sw.Dispose()
+            foreach ($img in ($srcZip.Entries | Where-Object { $_.Name -ne "set" })) {
+                $de = $dstZip.CreateEntry($img.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+                $s2 = $img.Open(); $d2 = $de.Open()
+                $s2.CopyTo($d2); $s2.Dispose(); $d2.Dispose()
+            }
+            $srcZip.Dispose(); $dstZip.Dispose()
+            Copy-Item $tmpZ $cloudSetFile.FullName -Force
+            Remove-Item $tmpZ -Force -ErrorAction SilentlyContinue
+            Write-Host "Decisions applied: $($removeSet.Count) removed, $($restoreMap.Count) restored." -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "Warning: could not apply sync decisions: $($_.Exception.Message)" -ForegroundColor Yellow
     }
 }
 
-if ($previewResult -ne "OK") {
-    Write-Host "" -ForegroundColor Yellow
-    Write-Host "Sync cancelled by user. Restoring cloud version..." -ForegroundColor Yellow
-    & $gitCmd -C $repoDir checkout -- "Shared-Set/" *>$null
-    Write-Host "No changes were uploaded. Relaunching MSE2..." -ForegroundColor Cyan
-    $launchSet = if ($cloudSetFile) { $cloudSetFile.FullName } elseif ($setFile) { $setFile.FullName } else { $null }
-    if ($launchSet) {
-        Start-Process "wscript.exe" -ArgumentList "`"$repoDir\Launch_Silent.vbs`" `"$launchSet`""
-    } else {
-        Start-Process "wscript.exe" -ArgumentList "`"$repoDir\Launch_Silent.vbs`""
-    }
-    Start-Sleep -Seconds 2
-    exit
-}
 
 # ---------------------------------------------------------------
 # STEP 6: Commit everything (merged cards + creator fields) and push
