@@ -4,30 +4,29 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.IO.Compression
 
 try {
-    $appData  = "$env:LOCALAPPDATA\MSE2_Shared_Cloud"
-    $gitExe   = "$appData\mingit\cmd\git.exe"
+    $appData = "$env:LOCALAPPDATA\MSE2_Shared_Cloud"
+    $gitExe  = "$appData\mingit\cmd\git.exe"
     $env:GIT_TERMINAL_PROMPT = "0"
 
-    # Creator name
     $creatorFile = "$appData\creator.txt"
     $myName = if (Test-Path $creatorFile) { (Get-Content $creatorFile -Raw).Trim() } else { "Unknown" }
 
-    # Set file
     $setFile = Get-ChildItem "$appData\Shared-Set" -Recurse -Filter "*.mse-set" |
         Where-Object { $_.Name -notlike "*.bak" } | Select-Object -First 1
     if (-not $setFile) { throw "Could not find the shared set file." }
 
-    $setDir       = $setFile.DirectoryName
-    $tombstoneFile= "$setDir\deleted_cards.txt"
-    $draftFile    = "$setDir\draft_cards_$($myName -replace '[\\/:*?"<>|]','_').txt"
+    $setDir        = $setFile.DirectoryName
+    $tombstoneFile = "$setDir\deleted_cards.txt"
+    $safeUser      = $myName -replace '[\\/:*?"<>|]', '_'
+    $draftFile     = "$setDir\draft_cards_${safeUser}.txt"
 
-    # -------------------------------------------------------------------------
-    # Build XAML
-    # -------------------------------------------------------------------------
-    $xaml = @"
+    # =========================================================================
+    # XAML
+    # =========================================================================
+    [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="☠ Graveyard — $($setFile.BaseName)" Height="720" Width="600"
+        Title="Graveyard" Height="720" Width="600"
         WindowStartupLocation="CenterScreen" Background="#1A1A2E" Foreground="White">
   <Window.Resources>
     <Style TargetType="TextBlock">
@@ -72,21 +71,15 @@ try {
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
     </Grid.RowDefinitions>
-
-    <!-- Header -->
     <StackPanel Grid.Row="0" Margin="0,0,0,12">
-      <TextBlock Text="☠  Graveyard" FontSize="22" FontWeight="Bold" Foreground="#E94560"/>
+      <TextBlock Text="&#x2620;  Graveyard" FontSize="22" FontWeight="Bold" Foreground="#E94560"/>
       <TextBlock Text="Cards that existed in the last 7 days but are no longer in your set."
                  FontSize="12" Foreground="#888" Margin="0,4,0,0"/>
     </StackPanel>
-
-    <!-- Toolbar -->
     <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,12">
       <TextBlock Name="StatusText" Text="Scanning git history..." VerticalAlignment="Center" Foreground="#AAA" FontSize="12"/>
-      <Button Name="BtnRescan" Content="⟳ Rescan" Margin="12,0,0,0" Padding="10,4"/>
+      <Button Name="BtnRescan" Content="Rescan" Margin="12,0,0,0" Padding="10,4"/>
     </StackPanel>
-
-    <!-- Tabs -->
     <TabControl Grid.Row="2" Name="Tabs" Background="#16213E" BorderThickness="0" Padding="8">
       <TabItem Header="Recently Deleted" Name="TabDeleted">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -101,32 +94,35 @@ try {
     </TabControl>
   </Grid>
 </Window>
-"@
+'@
 
-    $reader = New-Object System.Xml.XmlNodeReader ([xml]$xaml)
+    $reader = New-Object System.Xml.XmlNodeReader $xaml
     $window = [System.Windows.Markup.XamlReader]::Load($reader)
 
-    $statusText  = $window.FindName("StatusText")
-    $panelDel    = $window.FindName("PanelDeleted")
-    $panelLost   = $window.FindName("PanelLost")
-    $btnRescan   = $window.FindName("BtnRescan")
+    $statusText = $window.FindName("StatusText")
+    $panelDel   = $window.FindName("PanelDeleted")
+    $panelLost  = $window.FindName("PanelLost")
+    $btnRescan  = $window.FindName("BtnRescan")
 
-    # -------------------------------------------------------------------------
+    # Update title to include set name
+    $window.Title = "Graveyard — $($setFile.BaseName)"
+
+    # =========================================================================
     # Helpers
-    # -------------------------------------------------------------------------
-    function Read-ZipSet ([string]$path) {
+    # =========================================================================
+    function Read-ZipSet([string]$path) {
         try {
             $z = [System.IO.Compression.ZipFile]::OpenRead($path)
             $e = $z.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1
             if (-not $e) { $z.Dispose(); return $null }
             $sr = New-Object System.IO.StreamReader($e.Open(), [System.Text.Encoding]::UTF8)
-            $txt = $sr.ReadToEnd(); $sr.Dispose(); $z.Dispose()
+            $txt = $sr.ReadToEnd()
+            $sr.Dispose(); $z.Dispose()
             return $txt
         } catch { return $null }
     }
 
-    function Parse-Cards ([string]$content) {
-        # Returns hashtable: time_created -> card block
+    function Parse-Cards([string]$content) {
         $map = @{}
         if (-not $content) { return $map }
         $content -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
@@ -139,52 +135,60 @@ try {
         return $map
     }
 
-    function Make-CardTile ($entry, $isDeleted) {
+    function New-EmptyMsg([string]$text) {
+        $tb = New-Object System.Windows.Controls.TextBlock
+        $tb.Text = $text
+        $tb.Foreground = "#555"
+        $tb.FontStyle = "Italic"
+        $tb.Margin = "0,20,0,0"
+        $tb.HorizontalAlignment = "Center"
+        return $tb
+    }
+
+    function New-CardTile($entry, [bool]$isDeleted) {
         $name    = if ($entry.CardBlock -match "(?m)^\s*name:\s*(.+)")    { $matches[1].Trim() } else { "(unnamed)" }
         $creator = if ($entry.CardBlock -match "(?m)^\s*creator:\s*(.+)") { $matches[1].Trim() } else { "?" }
         $rarity  = if ($entry.CardBlock -match "(?m)^\s*rarity:\s*(.+)")  { $matches[1].Trim() } else { "" }
         $tc      = $entry.TimeCreated
         $lastSeen= $entry.LastSeen
 
-        $age = (Get-Date) - $lastSeen
+        $age    = (Get-Date) - $lastSeen
         $ageStr = if ($age.TotalMinutes -lt 60) { "$([int]$age.TotalMinutes) min ago" }
                   elseif ($age.TotalHours -lt 24) { "$([int]$age.TotalHours)h ago" }
                   else { "$([int]$age.TotalDays)d ago" }
 
+        $conv = New-Object System.Windows.Media.BrushConverter
+
         $border = New-Object System.Windows.Controls.Border
-        $border.Background  = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#16213E")
-        $border.BorderBrush = (New-Object System.Windows.Media.BrushConverter).ConvertFromString(
-            if ($isDeleted) { "#E94560" } else { "#0F3460" })
-        $border.BorderThickness = "0,0,0,2"
+        $border.Background  = $conv.ConvertFromString("#16213E")
+        $border.BorderBrush = $conv.ConvertFromString($(if ($isDeleted) { "#E94560" } else { "#0F3460" }))
+        $border.BorderThickness = [System.Windows.Thickness]::new(0, 0, 0, 2)
         $border.CornerRadius    = "6"
-        $border.Margin   = "0,0,0,8"
-        $border.Padding  = "14,10"
+        $border.Margin   = [System.Windows.Thickness]::new(0, 0, 0, 8)
+        $border.Padding  = [System.Windows.Thickness]::new(14, 10, 14, 10)
 
         $row = New-Object System.Windows.Controls.Grid
-        $row.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width="*"}))
-        $row.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{Width="Auto"}))
+        $col1 = New-Object System.Windows.Controls.ColumnDefinition
+        $col1.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+        $col2 = New-Object System.Windows.Controls.ColumnDefinition
+        $col2.Width = [System.Windows.GridLength]::Auto
+        $row.ColumnDefinitions.Add($col1)
+        $row.ColumnDefinitions.Add($col2)
 
         $info = New-Object System.Windows.Controls.StackPanel
 
         $nameBlock = New-Object System.Windows.Controls.TextBlock
-        $nameBlock.Text = $name
-        $nameBlock.FontSize = 14
-        $nameBlock.FontWeight = "SemiBold"
-        $nameBlock.Foreground = "White"
+        $nameBlock.Text = $name; $nameBlock.FontSize = 14; $nameBlock.FontWeight = "SemiBold"
         $info.Children.Add($nameBlock) | Out-Null
 
         $metaBlock = New-Object System.Windows.Controls.TextBlock
-        $metaBlock.Text = "$creator  ·  $rarity"
-        $metaBlock.FontSize = 11
-        $metaBlock.Foreground = "#888"
-        $metaBlock.Margin = "0,2,0,0"
+        $metaBlock.Text = "$creator  ·  $rarity"; $metaBlock.FontSize = 11
+        $metaBlock.Foreground = "#888"; $metaBlock.Margin = "0,2,0,0"
         $info.Children.Add($metaBlock) | Out-Null
 
         $seenBlock = New-Object System.Windows.Controls.TextBlock
-        $seenBlock.Text = "Last seen: $($lastSeen.ToString('MMM d') ) at $($lastSeen.ToString('h:mm tt'))  ($ageStr)"
-        $seenBlock.FontSize = 11
-        $seenBlock.Foreground = "#666"
-        $seenBlock.Margin = "0,2,0,0"
+        $seenBlock.Text = "Last seen: $($lastSeen.ToString('MMM d')) at $($lastSeen.ToString('h:mm tt'))  ($ageStr)"
+        $seenBlock.FontSize = 11; $seenBlock.Foreground = "#666"; $seenBlock.Margin = "0,2,0,0"
         $info.Children.Add($seenBlock) | Out-Null
 
         [System.Windows.Controls.Grid]::SetColumn($info, 0)
@@ -195,14 +199,15 @@ try {
         [System.Windows.Controls.Grid]::SetColumn($btnStack, 1)
 
         $btnRestore = New-Object System.Windows.Controls.Button
-        $btnRestore.Content = "Restore"
-        $btnRestore.Background = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#27AE60")
-        $btnRestore.Padding = "10,4"
+        $btnRestore.Content    = "Restore"
+        $btnRestore.Background = $conv.ConvertFromString("#27AE60")
+        $btnRestore.Padding    = [System.Windows.Thickness]::new(10, 4, 10, 4)
 
-        # Capture for closure
-        $capturedBlock   = $entry.CardBlock
-        $capturedTc      = $tc
-        $capturedName    = $name
+        # Capture variables for the closure
+        $capturedBlock = $entry.CardBlock
+        $capturedTc    = $tc
+        $capturedName  = $name
+        $capturedBtn   = $btnRestore
 
         $btnRestore.add_Click({
             try {
@@ -213,16 +218,15 @@ try {
                 }
                 # Append to draft file for next sync
                 $existing = if (Test-Path $draftFile) { Get-Content $draftFile -Raw } else { "" }
-                if ($existing -notmatch [regex]::Escape($capturedTc)) {
+                if (-not $existing -or ($existing -notmatch [regex]::Escape($capturedTc))) {
                     Add-Content $draftFile -Value ($capturedBlock.TrimEnd() + "`n")
                 }
                 [System.Windows.MessageBox]::Show(
-                    "'$capturedName' queued for restoration.`nPress Sync Now in MSE2 to add it back.",
-                    "Queued", "OK", "Information") | Out-Null
-                # Disable the button
-                $btnRestore.IsEnabled = $false
-                $btnRestore.Content   = "Queued ✓"
-                $btnRestore.Background = (New-Object System.Windows.Media.BrushConverter).ConvertFromString("#555")
+                    "'$capturedName' has been queued for restoration.`nPress Sync Now in MSE2 to add it back to your set.",
+                    "Card Queued", "OK", "Information") | Out-Null
+                $capturedBtn.IsEnabled = $false
+                $capturedBtn.Content   = "Queued"
+                $capturedBtn.Background = $conv.ConvertFromString("#555")
             } catch {
                 [System.Windows.MessageBox]::Show($_.Exception.Message, "Restore Error") | Out-Null
             }
@@ -230,36 +234,23 @@ try {
 
         $btnStack.Children.Add($btnRestore) | Out-Null
         $row.Children.Add($btnStack) | Out-Null
-
         $border.Child = $row
         return $border
     }
 
-    function EmptyMsg ($text) {
-        $tb = New-Object System.Windows.Controls.TextBlock
-        $tb.Text = $text
-        $tb.Foreground = "#555"
-        $tb.FontStyle = "Italic"
-        $tb.Margin = "0,20,0,0"
-        $tb.HorizontalAlignment = "Center"
-        return $tb
-    }
-
-    # -------------------------------------------------------------------------
-    # Main scan function
-    # -------------------------------------------------------------------------
+    # =========================================================================
+    # Scan function
+    # =========================================================================
     function Invoke-Scan {
         $panelDel.Children.Clear()
         $panelLost.Children.Clear()
-        $statusText.Text = "Scanning..."
-        $window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{})
+        $statusText.Text = "Scanning git history..."
+        $window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Render, [action]{})
 
         try {
-            # Read current set
             $currentTxt = Read-ZipSet $setFile.FullName
             $currentMap = Parse-Cards $currentTxt
 
-            # Load tombstone
             $tombstoned = New-Object System.Collections.Generic.HashSet[string]
             if (Test-Path $tombstoneFile) {
                 Get-Content $tombstoneFile | ForEach-Object {
@@ -267,36 +258,39 @@ try {
                 }
             }
 
-            # Commits that touched the set file in last 7 days
-            $setRelPath = $setFile.FullName.Replace("$appData\","").Replace("\","/")
-            $commits = & $gitExe -C $appData log --since="7.days" --format="%h %ai" -- "$setRelPath" 2>$null
-            if (-not $commits) {
+            # Get set path relative to repo root
+            $setRelPath = $setFile.FullName.Substring($appData.Length + 1).Replace("\", "/")
+
+            # Commits from the last 7 days that touched the set file
+            $rawLog = & $gitExe -C $appData log --since="7.days" --format="%h %ai" -- $setRelPath 2>$null
+            if (-not $rawLog) {
                 $statusText.Text = "No commits found in the last 7 days."
+                $panelDel.Children.Add((New-EmptyMsg "Nothing to show.")) | Out-Null
+                $panelLost.Children.Add((New-EmptyMsg "Nothing to show.")) | Out-Null
                 return
             }
 
-            # For each card not in current set, track latest commit it appeared in
-            # key: time_created -> { CardBlock, LastSeen, CommitHash }
+            $commitLines = @($rawLog)
             $history = @{}
 
-            foreach ($line in $commits) {
-                if ($line -notmatch "^([a-f0-9]+)\s+(.+)$") { continue }
-                $hash = $matches[1]
-                $dateStr = $matches[2].Trim() -replace " [+-]\d{4}$",""
+            foreach ($line in $commitLines) {
+                if ($line -notmatch "^([a-f0-9]+)\s+(.+?)\s+[+-]\d{4}$") { continue }
+                $hash    = $matches[1]
+                $dateStr = $matches[2].Trim()
                 try { $commitDate = [datetime]::Parse($dateStr) } catch { continue }
 
                 $blobHash = (& $gitExe -C $appData rev-parse "${hash}:${setRelPath}" 2>$null).Trim()
                 if (-not $blobHash) { continue }
 
-                $tmpFile = "$env:TEMP\gy_scan_$hash.mse-set"
-                cmd /c "`"$gitExe`" -C `"$appData`" cat-file blob $blobHash > `"$tmpFile`"" 2>$null
+                $tmpFile = "$env:TEMP\gy_$hash.mse-set"
+                cmd /c ("`"" + $gitExe + "`" -C `"" + $appData + "`" cat-file blob " + $blobHash + " > `"" + $tmpFile + "`"") 2>$null
                 $commitMap = Parse-Cards (Read-ZipSet $tmpFile)
                 Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
 
                 foreach ($tc in $commitMap.Keys) {
                     if (-not $currentMap.ContainsKey($tc)) {
                         if (-not $history.ContainsKey($tc) -or $commitDate -gt $history[$tc].LastSeen) {
-                            $history[$tc] = @{
+                            $history[$tc] = [PSCustomObject]@{
                                 TimeCreated = $tc
                                 CardBlock   = $commitMap[$tc]
                                 LastSeen    = $commitDate
@@ -306,46 +300,37 @@ try {
                 }
             }
 
-            # Split into tombstoned vs accidentally lost
-            $deleted = $history.Keys | Where-Object {  $tombstoned.Contains($_) } | ForEach-Object { $history[$_] }
-            $lost    = $history.Keys | Where-Object { -not $tombstoned.Contains($_) } | ForEach-Object { $history[$_] }
+            $deleted = @($history.Values | Where-Object {  $tombstoned.Contains($_.TimeCreated) } | Sort-Object LastSeen -Descending)
+            $lost    = @($history.Values | Where-Object { -not $tombstoned.Contains($_.TimeCreated) } | Sort-Object LastSeen -Descending)
 
-            # Sort both: most recently seen first
-            $deleted = @($deleted | Sort-Object { $_.LastSeen } -Descending)
-            $lost    = @($lost    | Sort-Object { $_.LastSeen } -Descending)
+            $statusText.Text = "Scanned $($commitLines.Count) commits  ·  $($deleted.Count) deleted  ·  $($lost.Count) lost  ·  $(Get-Date -Format 'HH:mm:ss')"
 
-            $statusText.Text = "Scanned $($commits.Count) commits · $($deleted.Count) deleted · $($lost.Count) lost — $(Get-Date -Format 'HH:mm:ss')"
-
-            # Populate panels
             if ($deleted.Count -eq 0) {
-                $panelDel.Children.Add((EmptyMsg "No intentionally deleted cards in the last 7 days.")) | Out-Null
+                $panelDel.Children.Add((New-EmptyMsg "No intentionally deleted cards in the last 7 days.")) | Out-Null
             } else {
-                foreach ($e in $deleted) {
-                    $panelDel.Children.Add((Make-CardTile $e $true)) | Out-Null
-                }
+                foreach ($e in $deleted) { $panelDel.Children.Add((New-CardTile $e $true)) | Out-Null }
             }
 
             if ($lost.Count -eq 0) {
-                $panelLost.Children.Add((EmptyMsg "No accidentally lost cards found in the last 7 days.")) | Out-Null
+                $panelLost.Children.Add((New-EmptyMsg "No accidentally lost cards found in the last 7 days.")) | Out-Null
             } else {
-                foreach ($e in $lost) {
-                    $panelLost.Children.Add((Make-CardTile $e $false)) | Out-Null
-                }
+                foreach ($e in $lost) { $panelLost.Children.Add((New-CardTile $e $false)) | Out-Null }
             }
 
         } catch {
-            $statusText.Text = "Error: $($_.Exception.Message)"
+            $statusText.Text = "Error during scan: $($_.Exception.Message)"
         }
     }
 
-    # -------------------------------------------------------------------------
+    # =========================================================================
     # Events
-    # -------------------------------------------------------------------------
+    # =========================================================================
     $btnRescan.add_Click({ Invoke-Scan })
 
     $window.add_Loaded({
-        # Kick off scan on a background thread so the window shows first
-        $window.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{ Invoke-Scan })
+        $window.Dispatcher.BeginInvoke(
+            [System.Windows.Threading.DispatcherPriority]::Background,
+            [action]{ Invoke-Scan })
     })
 
     $window.ShowDialog() | Out-Null
