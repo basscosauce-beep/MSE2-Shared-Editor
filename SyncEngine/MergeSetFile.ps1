@@ -464,7 +464,7 @@ Write-Host "[Merge] Final keywords: $($finalKeywords.Count) total" -ForegroundCo
 # Build the pre-card header WITHOUT any keywords, then append merged keywords
 $cloudHeaderNoKw = ($cloudHeader -split "(?m)^(?=keyword:)")[0]
 $mergedKwText = ($finalKeywords.Values | Where-Object { $_ }) -join ""
-Write-Host "[Merge] Merged result: $mergedCardCount cards." -ForegroundColor DarkGray
+Write-Host "[Merge] Merged result: $($mergedCards.Count) cards." -ForegroundColor DarkGray
 
 # ===========================================================================
 # SAFETY: Deduplicate merged cards by time_created before assembling output.

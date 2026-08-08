@@ -166,12 +166,11 @@ try {
 
     $conv = New-Object System.Windows.Media.BrushConverter
 
-    # State shared across scan/sync
-    $script:mergedMap  = $null
-    $script:cloudMap   = $null
-    $script:commitMap  = $null
-    $script:mergedContent = $null
-    $script:hasChanges = $false
+    # State shared across scan/sync — defined at outer scope so all functions can reach them
+    $commitMap  = $null
+    $mergedMap  = $null
+    $cloudMap   = $null
+    $hasChanges = $false
 
     # =========================================================================
     # Helpers
@@ -229,7 +228,7 @@ try {
         return $b
     }
 
-    function New-CardRow($entry, [string]$category) {
+    function New-CardRow($entry, [string]$category, $sharedCommitMap, [string]$sharedDraftFile) {
         $name    = Get-Field $entry.Block "name";    if (-not $name)    { $name    = "(unnamed)" }
         $creator = Get-Field $entry.Block "creator"; if (-not $creator) { $creator = "?" }
         $rarity  = Get-Field $entry.Block "rarity"
@@ -237,6 +236,8 @@ try {
         $capturedTC    = $entry.TC
         $capturedBlock = $entry.Block
         $capturedConv  = $conv
+        $capturedMap   = $sharedCommitMap    # reference to the SAME dict object
+        $capturedDraft = $sharedDraftFile
 
         $outer = New-Object System.Windows.Controls.Border
         $outer.Background   = $conv.ConvertFromString("#0F1A2E")
@@ -276,12 +277,18 @@ try {
             $btn.ToolTip    = "Defer this card - it will appear in the next sync instead"
             $capturedBtn    = $btn
             $btn.add_Click({
-                if ($script:commitMap.Contains($capturedTC)) { $script:commitMap.Remove($capturedTC) }
-                if ($draftFile) { Add-Content $draftFile -Value ($capturedBlock.TrimEnd() + "`n") -Encoding UTF8 }
-                $capturedOuter.Background = $capturedConv.ConvertFromString("#0A0A0A")
-                $capturedOuter.Opacity    = 0.4
-                $capturedBtn.IsEnabled    = $false
-                $capturedBtn.Content      = "Deferred"
+                try {
+                    if ($capturedMap -and $capturedMap.Contains($capturedTC)) { $capturedMap.Remove($capturedTC) }
+                    if ($capturedDraft) { Add-Content $capturedDraft -Value ($capturedBlock.TrimEnd() + "`n") -Encoding UTF8 }
+                    if ($capturedOuter -and $capturedConv) {
+                        $capturedOuter.Background = $capturedConv.ConvertFromString("#0A0A0A")
+                        $capturedOuter.Opacity    = 0.4
+                    }
+                    if ($capturedBtn) { $capturedBtn.IsEnabled = $false; $capturedBtn.Content = "Deferred" }
+                } catch {
+                    # Silently absorb - prevents exception from propagating to ShowDialog
+                    [System.Diagnostics.Debug]::WriteLine("Remove click error: $($_.Exception.Message)")
+                }
             }.GetNewClosure())
             $btnPanel.Children.Add($btn) | Out-Null
         }
@@ -292,12 +299,20 @@ try {
             $btn.ToolTip    = "Rescue this card - restore it into the set"
             $capturedBtn    = $btn
             $btn.add_Click({
-                if (-not $script:commitMap.Contains($capturedTC)) { $script:commitMap[$capturedTC] = $capturedBlock }
-                $capturedOuter.Background = $capturedConv.ConvertFromString("#0A1A0A")
-                $capturedOuter.Opacity    = 0.6
-                $capturedBtn.IsEnabled    = $false
-                $capturedBtn.Content      = "Kept"
-                $capturedBtn.Background   = $capturedConv.ConvertFromString("#333")
+                try {
+                    if ($capturedMap -and -not $capturedMap.Contains($capturedTC)) { $capturedMap[$capturedTC] = $capturedBlock }
+                    if ($capturedOuter -and $capturedConv) {
+                        $capturedOuter.Background = $capturedConv.ConvertFromString("#0A1A0A")
+                        $capturedOuter.Opacity    = 0.6
+                    }
+                    if ($capturedBtn -and $capturedConv) {
+                        $capturedBtn.IsEnabled    = $false
+                        $capturedBtn.Content      = "Kept"
+                        $capturedBtn.Background   = $capturedConv.ConvertFromString("#333")
+                    }
+                } catch {
+                    [System.Diagnostics.Debug]::WriteLine("Keep click error: $($_.Exception.Message)")
+                }
             }.GetNewClosure())
             $btnPanel.Children.Add($btn) | Out-Null
         }
@@ -329,7 +344,7 @@ try {
     # Update checkbox and sync button state
     # =========================================================================
     function Update-SyncButton {
-        if ($script:hasChanges) {
+        if ($hasChanges) {
             if ($chkReviewed.IsChecked -eq $true) {
                 $btnSync.IsEnabled   = $true
                 $btnSync.Background  = $conv.ConvertFromString("#16A34A")
@@ -398,33 +413,33 @@ try {
                 return
             }
 
-            $script:mergedContent = $localContent
-            $script:mergedMap     = Parse-CardMap $localContent
-            $script:cloudMap      = Parse-CardMap $cloudContent
+            $mergedMap = Parse-CardMap $localContent
+            $cloudMap  = Parse-CardMap $cloudContent
 
-            # commitMap starts as a copy of the local (merged) state
-            $script:commitMap = [System.Collections.Specialized.OrderedDictionary]::new()
-            foreach ($k in $script:mergedMap.Keys) { $script:commitMap[$k] = $script:mergedMap[$k] }
+            # commitMap starts as a copy of the local state — plain var, not $script:
+            # New-CardRow receives this by reference so button clicks modify the same dict
+            $commitMap = [System.Collections.Specialized.OrderedDictionary]::new()
+            foreach ($k in $mergedMap.Keys) { $commitMap[$k] = $mergedMap[$k] }
 
             # Categorize
             $adding   = @()
             $deleting = @()
             $changed  = @()
-            foreach ($tc in $script:mergedMap.Keys) {
-                if (-not $script:cloudMap.Contains($tc)) {
-                    $adding += @{ TC=$tc; Block=$script:mergedMap[$tc] }
-                } elseif ($script:mergedMap[$tc] -ne $script:cloudMap[$tc]) {
-                    $changed += @{ TC=$tc; Block=$script:mergedMap[$tc]; CloudBlock=$script:cloudMap[$tc] }
+            foreach ($tc in $mergedMap.Keys) {
+                if (-not $cloudMap.Contains($tc)) {
+                    $adding += @{ TC=$tc; Block=$mergedMap[$tc] }
+                } elseif ($mergedMap[$tc] -ne $cloudMap[$tc]) {
+                    $changed += @{ TC=$tc; Block=$mergedMap[$tc]; CloudBlock=$cloudMap[$tc] }
                 }
             }
-            foreach ($tc in $script:cloudMap.Keys) {
-                if (-not $script:mergedMap.Contains($tc)) {
-                    $deleting += @{ TC=$tc; Block=$script:cloudMap[$tc] }
+            foreach ($tc in $cloudMap.Keys) {
+                if (-not $mergedMap.Contains($tc)) {
+                    $deleting += @{ TC=$tc; Block=$cloudMap[$tc] }
                 }
             }
 
             $totalChanges = $adding.Count + $deleting.Count + $changed.Count
-            $script:hasChanges = $totalChanges -gt 0
+            $hasChanges   = $totalChanges -gt 0
 
             # Summary pills
             if ($adding.Count -gt 0)  { $summaryPanel.Children.Add((New-SummaryPill "+$($adding.Count) adding" "#15803D"))  | Out-Null }
@@ -432,18 +447,18 @@ try {
             if ($changed.Count -gt 0)  { $summaryPanel.Children.Add((New-SummaryPill "~$($changed.Count) changed" "#1D4ED8"))  | Out-Null }
             if ($totalChanges -eq 0)   { $summaryPanel.Children.Add((New-SummaryPill "Up to date" "#374151"))                   | Out-Null }
 
-            # Card sections
+            # Card sections — pass commitMap and draftFile explicitly to New-CardRow
             if ($adding.Count -gt 0) {
                 $cardList.Children.Add((New-SectionHeader "ADDING - Your new cards going up" "#14532D")) | Out-Null
-                foreach ($e in $adding) { $cardList.Children.Add((New-CardRow $e "adding")) | Out-Null }
+                foreach ($e in $adding) { $cardList.Children.Add((New-CardRow $e "adding" $commitMap $draftFile)) | Out-Null }
             }
             if ($deleting.Count -gt 0) {
                 $cardList.Children.Add((New-SectionHeader "DELETING - Will be removed for everyone" "#7F1D1D")) | Out-Null
-                foreach ($e in $deleting) { $cardList.Children.Add((New-CardRow $e "deleting")) | Out-Null }
+                foreach ($e in $deleting) { $cardList.Children.Add((New-CardRow $e "deleting" $commitMap $draftFile)) | Out-Null }
             }
             if ($changed.Count -gt 0) {
                 $cardList.Children.Add((New-SectionHeader "CHANGED - Edits since last sync" "#1E3A5F")) | Out-Null
-                foreach ($e in $changed) { $cardList.Children.Add((New-CardRow $e "changed")) | Out-Null }
+                foreach ($e in $changed) { $cardList.Children.Add((New-CardRow $e "changed" $commitMap $draftFile)) | Out-Null }
             }
             if ($totalChanges -eq 0) {
                 $tb = New-Object System.Windows.Controls.TextBlock
@@ -454,7 +469,7 @@ try {
             }
 
             # Checkbox visibility
-            if ($script:hasChanges) {
+            if ($hasChanges) {
                 $chkReviewed.IsEnabled = $true
                 $chkReviewed.Content   = "I have reviewed all $totalChanges change(s) above"
             } else {
@@ -508,14 +523,14 @@ try {
             # Write predecided Remove/Keep state to a temp file for SyncNow to consume
             $predecidedFile = "$env:TEMP\cloudsync_decisions_$([System.IO.Path]::GetRandomFileName()).txt"
             $lines = @()
-            foreach ($tc in $script:commitMap.Keys) { $lines += "KEEP:$tc" }
+            foreach ($tc in $commitMap.Keys) { $lines += "KEEP:$tc" }
             # Cards in mergedMap but NOT in commitMap were Removed by user
-            foreach ($tc in $script:mergedMap.Keys) {
-                if (-not $script:commitMap.Contains($tc)) { $lines += "REMOVE:$tc" }
+            foreach ($tc in $mergedMap.Keys) {
+                if (-not $commitMap.Contains($tc)) { $lines += "REMOVE:$tc" }
             }
             # Cards in commitMap but NOT in mergedMap were Kept (rescued deletions)
-            foreach ($tc in $script:commitMap.Keys) {
-                if (-not $script:mergedMap.Contains($tc)) { $lines += "RESTORE:$tc|$($script:commitMap[$tc])" }
+            foreach ($tc in $commitMap.Keys) {
+                if (-not $mergedMap.Contains($tc)) { $lines += "RESTORE:$tc|$($commitMap[$tc])" }
             }
             Set-Content $predecidedFile -Value $lines -Encoding UTF8
 
