@@ -204,29 +204,35 @@ try {
         $btnRestore.Background = $conv.ConvertFromString("#27AE60")
         $btnRestore.Padding    = [System.Windows.Thickness]::new(10, 4, 10, 4)
 
-        # Capture variables for the closure
-        $capturedBlock = $entry.CardBlock
-        $capturedTc    = $tc
-        $capturedName  = $name
-        $capturedBtn   = $btnRestore
+        # Capture ALL variables used in the closure as locals so GetNewClosure() picks them up.
+        # $tombstoneFile and $draftFile live in the outer try-block scope (not this function),
+        # so they must be explicitly captured here or they will be null when BeginInvoke fires.
+        $capturedBlock        = $entry.CardBlock
+        $capturedTc           = $tc
+        $capturedName         = $name
+        $capturedBtn          = $btnRestore
+        $capturedTombstone    = $tombstoneFile
+        $capturedDraft        = $draftFile
 
         $btnRestore.add_Click({
             try {
                 # Remove from tombstone if present
-                if (Test-Path $tombstoneFile) {
-                    $lines = Get-Content $tombstoneFile | Where-Object { $_.Trim() -ne $capturedTc }
-                    Set-Content $tombstoneFile -Value $lines -Encoding UTF8
+                if ($capturedTombstone -and (Test-Path $capturedTombstone)) {
+                    $lines = Get-Content $capturedTombstone | Where-Object { $_.Trim() -ne $capturedTc }
+                    Set-Content $capturedTombstone -Value $lines -Encoding UTF8
                 }
-                # Append to draft file for next sync
-                $existing = if (Test-Path $draftFile) { Get-Content $draftFile -Raw } else { "" }
-                if (-not $existing -or ($existing -notmatch [regex]::Escape($capturedTc))) {
-                    Add-Content $draftFile -Value ($capturedBlock.TrimEnd() + "`n")
+                # Append to draft file for next Cloud Sync
+                if ($capturedDraft) {
+                    $existing = if (Test-Path $capturedDraft) { Get-Content $capturedDraft -Raw } else { "" }
+                    if (-not $existing -or ($existing -notmatch [regex]::Escape($capturedTc))) {
+                        Add-Content $capturedDraft -Value ($capturedBlock.TrimEnd() + "`n")
+                    }
                 }
                 [System.Windows.MessageBox]::Show(
-                    "'$capturedName' has been queued for restoration.`nPress Sync Now in MSE2 to add it back to your set.",
+                    "'$capturedName' has been queued for restoration.`nOpen Cloud Sync from the MSE2 menu bar to push it back to the set.",
                     "Card Queued", "OK", "Information") | Out-Null
-                $capturedBtn.IsEnabled = $false
-                $capturedBtn.Content   = "Queued"
+                $capturedBtn.IsEnabled  = $false
+                $capturedBtn.Content    = "Queued"
                 $capturedBtn.Background = $conv.ConvertFromString("#555")
             } catch {
                 [System.Windows.MessageBox]::Show($_.Exception.Message, "Restore Error") | Out-Null
