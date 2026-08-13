@@ -122,7 +122,18 @@ if ($existingMsePath -eq "" -and $autoFound -ne "") { $existingMsePath = $autoFo
           <TextBlock Name="StepNum4" Text="4" FontSize="13" FontWeight="Bold" Foreground="#555580" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <StackPanel VerticalAlignment="Center">
-          <TextBlock Name="StepLbl4" Text="All Set!" FontSize="12" FontWeight="SemiBold" Foreground="#555580"/>
+          <TextBlock Name="StepLbl4" Text="Set Location" FontSize="12" FontWeight="SemiBold" Foreground="#555580"/>
+          <TextBlock Text="Where are your cards" FontSize="10" Foreground="#333366"/>
+        </StackPanel>
+      </StackPanel>
+
+      <!-- Step 5 -->
+      <StackPanel Name="SideStep5" Orientation="Horizontal" Margin="0,0,0,20">
+        <Border Name="StepDot5" Width="28" Height="28" CornerRadius="14" Background="#1E1E38" Margin="0,0,12,0" VerticalAlignment="Center">
+          <TextBlock Name="StepNum5" Text="5" FontSize="13" FontWeight="Bold" Foreground="#555580" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Name="StepLbl5" Text="All Set!" FontSize="12" FontWeight="SemiBold" Foreground="#555580"/>
           <TextBlock Text="Ready to play" FontSize="10" Foreground="#333366"/>
         </StackPanel>
       </StackPanel>
@@ -272,8 +283,84 @@ if ($existingMsePath -eq "" -and $autoFound -ne "") { $existingMsePath = $autoFo
           </Border>
         </StackPanel>
 
-        <!-- ======= STEP 4: Done ======= -->
+        <!-- ======= STEP 4: Set Location ======= -->
         <StackPanel Name="PanelStep4" Visibility="Collapsed">
+          <TextBlock Text="Set Location" FontSize="28" FontWeight="Bold" Foreground="#6366F1" Margin="0,0,0,6"/>
+          <TextBlock Text="Here is where your shared card set files are stored on this computer." FontSize="14" Foreground="#AAAACC" Margin="0,0,0,24" TextWrapping="Wrap"/>
+
+          <!-- Path display box -->
+          <TextBlock Text="Shared set folder" FontSize="12" Foreground="#AAAACC" Margin="0,0,0,6"/>
+          <Border Background="#0D0D1A" BorderBrush="#2D2D55" BorderThickness="1" CornerRadius="6" Padding="14,10" Margin="0,0,0,10">
+            <TextBlock Name="SetPathDisplay" Text="" FontSize="12" Foreground="#AAAAEE" FontFamily="Consolas" TextWrapping="Wrap"/>
+          </Border>
+
+          <!-- Action buttons -->
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,24">
+            <Button Name="BtnCopySetPath" Content="Copy Path" Margin="0,0,10,0"
+                    Background="#252545" Foreground="#AAAACC" BorderBrush="#333366"
+                    BorderThickness="1" Padding="14,8" FontSize="12" FontFamily="Segoe UI" Cursor="Hand">
+              <Button.Template>
+                <ControlTemplate TargetType="Button">
+                  <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                          BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#333366"/></Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </Button.Template>
+            </Button>
+            <Button Name="BtnOpenSetFolder" Content="Open in Explorer" Margin="0,0,0,0"
+                    Background="#1A2A1A" Foreground="#88BB88" BorderBrush="#2A4A2A"
+                    BorderThickness="1" Padding="14,8" FontSize="12" FontFamily="Segoe UI" Cursor="Hand">
+              <Button.Template>
+                <ControlTemplate TargetType="Button">
+                  <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                          BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#243A24"/></Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </Button.Template>
+            </Button>
+            <TextBlock Name="CopiedMsg" Text="Copied!" Foreground="#22C55E" FontSize="12" Margin="12,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+          </StackPanel>
+
+          <!-- How-to tip -->
+          <Border Background="#111128" CornerRadius="10" Padding="20,16" Margin="0,0,0,12">
+            <StackPanel>
+              <TextBlock Text="How to open your set in MSE2:" FontSize="12" FontWeight="Bold" Foreground="#6366F1" Margin="0,0,0,10"/>
+              <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="1." Foreground="#6366F1" Width="20" FontSize="12"/>
+                <TextBlock Text="Launch MSE2 from your desktop shortcut" Foreground="#CCC" FontSize="12"/>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="2." Foreground="#6366F1" Width="20" FontSize="12"/>
+                <TextBlock Text="It will open the shared set automatically" Foreground="#CCC" FontSize="12"/>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="3." Foreground="#6366F1" Width="20" FontSize="12"/>
+                <TextBlock TextWrapping="Wrap" Foreground="#CCC" FontSize="12">Or use File &gt; Open and paste the path above to find it manually</TextBlock>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <Border Background="#0F1A2F" BorderBrush="#1A2A4A" BorderThickness="1" CornerRadius="8" Padding="14,10">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="TIP" FontSize="10" FontWeight="Bold" Foreground="#6366F1" Margin="0,0,10,0" VerticalAlignment="Center"
+                         Padding="6,2" Background="#1A1A40"/>
+              <TextBlock TextWrapping="Wrap" Foreground="#6688AA" FontSize="11" VerticalAlignment="Center">
+                Share this folder path with your friends so they know where to find the set files too.
+              </TextBlock>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <!-- ======= STEP 5: Done ======= -->
+        <StackPanel Name="PanelStep5" Visibility="Collapsed">
           <TextBlock Text="You're all set!" FontSize="28" FontWeight="Bold" Foreground="#22C55E" Margin="0,0,0,6"/>
           <TextBlock Text="Everything is configured and ready to go." FontSize="14" Foreground="#AAAACC" Margin="0,0,0,30" TextWrapping="Wrap"/>
 
@@ -323,7 +410,7 @@ if ($existingMsePath -eq "" -and $autoFound -ne "") { $existingMsePath = $autoFo
             <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
 
-          <TextBlock Name="StepCounter" Grid.Column="0" Text="Step 1 of 4" FontSize="11" Foreground="#333366" VerticalAlignment="Center"/>
+          <TextBlock Name="StepCounter" Grid.Column="0" Text="Step 1 of 5" FontSize="11" Foreground="#333366" VerticalAlignment="Center"/>
 
           <Button Name="BtnBack" Grid.Column="1" Content="Back" Margin="0,0,10,0"
                   Background="#1A1A30" Foreground="#888" BorderBrush="#2D2D55"
@@ -384,11 +471,12 @@ $panelStep1     = $window.FindName("PanelStep1")
 $panelStep2     = $window.FindName("PanelStep2")
 $panelStep3     = $window.FindName("PanelStep3")
 $panelStep4     = $window.FindName("PanelStep4")
-$panels         = @($panelStep1, $panelStep2, $panelStep3, $panelStep4)
+$panelStep5     = $window.FindName("PanelStep5")
+$panels         = @($panelStep1, $panelStep2, $panelStep3, $panelStep4, $panelStep5)
 
-$stepDots       = @(1..4 | ForEach-Object { $window.FindName("StepDot$_") })
-$stepNums       = @(1..4 | ForEach-Object { $window.FindName("StepNum$_") })
-$stepLbls       = @(1..4 | ForEach-Object { $window.FindName("StepLbl$_") })
+$stepDots       = @(1..5 | ForEach-Object { $window.FindName("StepDot$_") })
+$stepNums       = @(1..5 | ForEach-Object { $window.FindName("StepNum$_") })
+$stepLbls       = @(1..5 | ForEach-Object { $window.FindName("StepLbl$_") })
 
 $msePathBox     = $window.FindName("MsePathBox")
 $btnBrowse      = $window.FindName("BtnBrowse")
@@ -399,6 +487,11 @@ $autoDetectText = $window.FindName("AutoDetectText")
 $nameBox        = $window.FindName("NameBox")
 $previewInitial = $window.FindName("PreviewInitial")
 $previewName    = $window.FindName("PreviewName")
+
+$setPathDisplay  = $window.FindName("SetPathDisplay")
+$btnCopySetPath  = $window.FindName("BtnCopySetPath")
+$btnOpenSetFolder= $window.FindName("BtnOpenSetFolder")
+$copiedMsg       = $window.FindName("CopiedMsg")
 
 $summaryPath    = $window.FindName("SummaryPath")
 $summaryName    = $window.FindName("SummaryName")
@@ -426,31 +519,28 @@ $currentStep = 1
 
 function Update-StepVisuals {
     param([int]$step)
-    for ($i = 0; $i -lt 4; $i++) {
+    for ($i = 0; $i -lt 5; $i++) {
         $panels[$i].Visibility = if ($i -eq ($step - 1)) { "Visible" } else { "Collapsed" }
         if ($i -lt ($step - 1)) {
-            # Completed
             $stepDots[$i].Background = $conv.ConvertFromString("#22C55E")
-            $stepNums[$i].Text = [char]0x2713  # checkmark
+            $stepNums[$i].Text = [char]0x2713
             $stepNums[$i].Foreground = "White"
             $stepLbls[$i].Foreground = $conv.ConvertFromString("#22C55E")
         } elseif ($i -eq ($step - 1)) {
-            # Active
             $stepDots[$i].Background = $conv.ConvertFromString("#6366F1")
             $stepNums[$i].Text = "$($i + 1)"
             $stepNums[$i].Foreground = "White"
             $stepLbls[$i].Foreground = "White"
         } else {
-            # Future
             $stepDots[$i].Background = $conv.ConvertFromString("#1E1E38")
             $stepNums[$i].Text = "$($i + 1)"
             $stepNums[$i].Foreground = $conv.ConvertFromString("#555580")
             $stepLbls[$i].Foreground = $conv.ConvertFromString("#555580")
         }
     }
-    $stepCounter.Text = "Step $step of 4"
+    $stepCounter.Text = "Step $step of 5"
     $btnBack.IsEnabled = ($step -gt 1)
-    $btnNext.Content = if ($step -eq 4) { "Finish  [OK]" } else { "Next  >>" }
+    $btnNext.Content = if ($step -eq 5) { "Finish  [OK]" } else { "Next  >>" }
 }
 
 function Validate-MsePath {
@@ -519,6 +609,33 @@ $btnBrowse.add_Click({
     }
 })
 
+# Copy set path to clipboard
+$btnCopySetPath.add_Click({
+    $p = $setPathDisplay.Text
+    if ($p -ne "") {
+        [System.Windows.Clipboard]::SetText($p)
+        $copiedMsg.Visibility = "Visible"
+        # Hide the "Copied!" message after 2 seconds
+        $timer = New-Object System.Windows.Threading.DispatcherTimer
+        $timer.Interval = [TimeSpan]::FromSeconds(2)
+        $timer.add_Tick({
+            $copiedMsg.Visibility = "Collapsed"
+            $timer.Stop()
+        }.GetNewClosure())
+        $timer.Start()
+    }
+})
+
+# Open set folder in Windows Explorer
+$btnOpenSetFolder.add_Click({
+    $p = $setPathDisplay.Text
+    if ($p -ne "" -and (Test-Path $p)) {
+        Start-Process explorer.exe -ArgumentList "`"$p`""
+    } else {
+        Start-Process explorer.exe -ArgumentList "`"$appData\Shared-Set`""
+    }
+})
+
 # ------------------------------------------------------------------
 # Next / Finish button
 # ------------------------------------------------------------------
@@ -537,19 +654,29 @@ $btnNext.add_Click({
             $script:currentStep = 3
             Update-StepVisuals 3
         }
-        3 { # Name -> validate then advance
+        3 { # Name -> Set Location
             $n = $nameBox.Text.Trim()
             if ($n -eq "") {
                 [System.Windows.MessageBox]::Show("Please enter your name or initials.", "Name required", "OK", "Warning") | Out-Null
                 return
             }
-            # Populate summary and advance
-            $summaryPath.Text = $msePathBox.Text.Trim()
-            $summaryName.Text = $n
+            # Populate set path display
+            $sharedSetPath = "$appData\Shared-Set"
+            if (-not (Test-Path $sharedSetPath)) { New-Item $sharedSetPath -ItemType Directory -Force | Out-Null }
+            # Find the actual set subfolder if one exists
+            $setSubFolder = Get-ChildItem $sharedSetPath -Directory | Select-Object -First 1
+            $displayPath = if ($setSubFolder) { $setSubFolder.FullName } else { $sharedSetPath }
+            $setPathDisplay.Text = $displayPath
             $script:currentStep = 4
             Update-StepVisuals 4
         }
-        4 { # Finish - save config and exit
+        4 { # Set Location -> Summary
+            $summaryPath.Text = $msePathBox.Text.Trim()
+            $summaryName.Text = $nameBox.Text.Trim()
+            $script:currentStep = 5
+            Update-StepVisuals 5
+        }
+        5 { # Finish - save config and exit
             $msePath = $msePathBox.Text.Trim()
             $name    = $nameBox.Text.Trim()
 
