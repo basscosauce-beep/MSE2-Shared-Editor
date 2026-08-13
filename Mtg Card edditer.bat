@@ -11,8 +11,8 @@ set "REPO_ZIP=https://github.com/basscosauce-beep/MSE2-Shared-Editor/archive/ref
 set "TEMP_ZIP=%TEMP%\mse2_update.zip"
 set "TEMP_DIR=%TEMP%\mse2_update_%RANDOM%"
 
-:: ---- If already installed, just update the app files and launch ----
-if exist "%INSTALL_DIR%\MSE2\magicseteditor.exe" (
+:: ---- If already installed, just update the app files and re-run Setup if MSE path changed ----
+if exist "%INSTALL_DIR%\mingit\cmd\git.exe" (
     echo Forcing synchronization with cloud...
     set "PATH=%INSTALL_DIR%\mingit\cmd;%PATH%"
     set "GIT_TERMINAL_PROMPT=0"
@@ -25,7 +25,7 @@ if exist "%INSTALL_DIR%\MSE2\magicseteditor.exe" (
     git reset --hard origin/main >nul 2>&1
     git clean -fd >nul 2>&1
     echo Done!
-    goto :shortcut
+    goto :wizard
 )
 
 :: ---- First time install: download full package from GitHub ----
@@ -50,6 +50,8 @@ set "SRC=%TEMP_DIR%\MSE2-Shared-Editor-main"
 
 mkdir "%INSTALL_DIR%" >nul 2>&1
 xcopy /E /Y /I /Q /H "%SRC%\MSE2"         "%INSTALL_DIR%\MSE2"        >nul
+copy /Y "%SRC%\Setup.ps1"               "%INSTALL_DIR%\Setup.ps1"  >nul
+copy /Y "%SRC%\Setup.vbs"               "%INSTALL_DIR%\Setup.vbs"  >nul
 xcopy /E /Y /I /Q /H "%SRC%\SyncEngine"   "%INSTALL_DIR%\SyncEngine"  >nul
 xcopy /E /Y /I /Q /H "%SRC%\mingit"       "%INSTALL_DIR%\mingit"      >nul
 if exist "%SRC%\Shared-Set" xcopy /E /Y /I /Q /H "%SRC%\Shared-Set" "%INSTALL_DIR%\Shared-Set" >nul
@@ -98,8 +100,9 @@ powershell -Command "$WshShell = New-Object -comObject WScript.Shell; $Shortcut 
 echo Desktop shortcut created.
 
 
-:launch
-:: Launch silently via the VBS wrapper (no console window)
-start "" wscript.exe "%INSTALL_DIR%\Launch_Silent.vbs"
-exit
+:wizard
+:: Run the setup wizard to let the user choose where MSE2 is installed
+:: (also handles first-run name entry - replaces old InputBox)
+powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File "%INSTALL_DIR%\Setup.ps1"
+goto :eof
 

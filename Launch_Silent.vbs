@@ -14,8 +14,33 @@ Next
 On Error GoTo 0
 strDir = objFSO.GetParentFolderName(WScript.ScriptFullName)
 strGit = strDir & "\mingit\cmd\git.exe"
-strConfigFile = strDir & "\creator.txt"
-strCustomScript = strDir & "\MSE2\data\magic.mse-game\custom_script"
+strConfigFile  = strDir & "\creator.txt"
+strMsePathFile = strDir & "\mse_path.txt"
+strCustomScript = ""
+
+' ---- Resolve MSE2 exe path from mse_path.txt (modular: can be anywhere) ----
+strMseExe = ""
+If objFSO.FileExists(strMsePathFile) Then
+    Set fPath = objFSO.OpenTextFile(strMsePathFile, 1)
+    strMseExe = Trim(fPath.ReadAll)
+    fPath.Close
+End If
+
+' If path is missing or the exe no longer exists, run Setup wizard first
+If strMseExe = "" Or Not objFSO.FileExists(strMseExe) Then
+    objShell.Run "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File """ & strDir & "\Setup.ps1""", 0, True
+    ' Re-read path after wizard
+    If objFSO.FileExists(strMsePathFile) Then
+        Set fPath = objFSO.OpenTextFile(strMsePathFile, 1)
+        strMseExe = Trim(fPath.ReadAll)
+        fPath.Close
+    End If
+    If strMseExe = "" Or Not objFSO.FileExists(strMseExe) Then WScript.Quit
+End If
+
+' Derive MSE2 directory and custom_script path from the resolved exe path
+strMseDir = objFSO.GetParentFolderName(strMseExe)
+strCustomScript = strMseDir & "\data\magic.mse-game\custom_script"
 
 ' ---- Ensure Git Remote has Authentication Token so friends can push ----
 p1 = "ghp_2g4dOrh3klYwVMo6o"
@@ -30,17 +55,11 @@ objShell.Run """" & strGit & """ -C """ & strDir & """ remote set-url origin htt
 objShell.Environment("PROCESS")("GIT_TERMINAL_PROMPT") = "0"
 objShell.Run """" & strGit & """ -C """ & strDir & """ fetch origin", 0, True
 
-' ---- First launch: ask for name/initials ----
+' ---- First launch: run Setup wizard if no name yet ----
 If Not objFSO.FileExists(strConfigFile) Then
-    strName = InputBox("Welcome to MTG Card Editor - Shared Cloud!" & vbCrLf & vbCrLf & _
-                       "Enter your initials or name." & vbCrLf & _
-                       "This will auto-fill the 'By' column on every card you create.", _
-                       "Who are you?", "")
-    If Trim(strName) = "" Then strName = "Anonymous"
-    Set f = objFSO.CreateTextFile(strConfigFile, True)
-    f.Write Trim(strName)
-    f.Close
-    creatorName = Trim(strName)
+    objShell.Run "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File """ & strDir & "\Setup.ps1""", 0, True
+    ' Setup wizard saves creator.txt - if it still doesn't exist, user cancelled
+    If Not objFSO.FileExists(strConfigFile) Then WScript.Quit
 End If
 
 ' ---- Read creator name ----
@@ -105,7 +124,7 @@ strSetArg = ""
 If WScript.Arguments.Count > 0 Then
     strSetArg = " """ & WScript.Arguments(0) & """"
 End If
-objShell.Run """" & strDir & "\MSE2\magicseteditor.exe""" & strSetArg, 1, False
+objShell.Run """" & strMseExe & """" & strSetArg, 1, False
 
 
 ' EOF
