@@ -213,6 +213,7 @@ Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
 # that exist in the local backup but not in the cloud version
 # ---------------------------------------------------------------
 if ($localBackupPath -and (Test-Path $localBackupPath)) {
+    # Resolve the cloud set file now (after git reset --hard pulled latest from cloud)
     $cloudSetFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
         Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*\_pre_sync_backups\*" } |
         Select-Object -First 1
@@ -334,8 +335,15 @@ if ($SkipPreview -and $PredecidedFile -and (Test-Path $PredecidedFile) -and $clo
             foreach ($rtc in @($removeSet))    { if ($cmap.Contains($rtc))    { $cmap.Remove($rtc) } }
             foreach ($rtc in $restoreMap.Keys) { if (-not $cmap.Contains($rtc)) { $cmap[$rtc] = $restoreMap[$rtc] } }
 
-            # Extract file header (everything before first card: block)
-            $hdr = if ($mergedTxt -match "(?s)^(.*?)\r?\ncard:") { $matches[1] + "`r`n" } else { "" }
+            function Get-SetHeader {
+                param([string]$content)
+                if (-not $content) { return "" }
+                $idx = $content.IndexOf("`ncard:")
+                if ($idx -ge 0) { return $content.Substring(0, $idx + 1) }
+                if ($content.StartsWith("card:")) { return "" }
+                return $content
+            }
+            $hdr = Get-SetHeader -content $mergedTxt
 
             # Extract trailing section (keywords / version_control / etc. after last card)
             $trail   = ""
@@ -353,7 +361,8 @@ if ($SkipPreview -and $PredecidedFile -and (Test-Path $PredecidedFile) -and $clo
             $newTxt = $hdr
             foreach ($tc in $cmap.Keys) {
                 $blk = $cmap[$tc]
-                if (-not $blk.StartsWith("card:")) { $blk = "card:`r`n" + $blk }
+                # The lookahead split (^(?=card:)) keeps 'card:' at the start of each block.
+                # Never prepend it again - that would create 'card:\ncard:\n...' duplicates.
                 $newTxt += $blk.TrimEnd() + "`r`n"
             }
             $newTxt += $trail

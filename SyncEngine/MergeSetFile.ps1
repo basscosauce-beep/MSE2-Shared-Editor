@@ -73,9 +73,12 @@ function Get-CardMap {
 function Get-SetHeader {
     param([string]$content)
     if (-not $content) { return "" }
+    # Find the first card: block - could be at position 0 or after a newline
     $idx = $content.IndexOf("`ncard:")
-    if ($idx -lt 0) { return $content }
-    return $content.Substring(0, $idx + 1)
+    if ($idx -ge 0) { return $content.Substring(0, $idx + 1) }
+    # card: starts at the very beginning of the file (no preceding newline)
+    if ($content.StartsWith("card:")) { return "" }
+    return $content
 }
 
 # ---------------------------------------------------------------------------
