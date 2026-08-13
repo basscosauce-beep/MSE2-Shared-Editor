@@ -1,4 +1,4 @@
-
+﻿
 # Setup.ps1 - First-run setup wizard for MSE2 Shared Cloud
 # Lets the user point to wherever MSE2 is installed on their PC.
 # Writes mse_path.txt so all other scripts read the location from config.
@@ -139,7 +139,7 @@ if ($existingMsePath -eq "" -and $autoFound -ne "") { $existingMsePath = $autoFo
       </StackPanel>
 
       <!-- Version -->
-      <TextBlock Text="v3.4" FontSize="10" Foreground="#22223A" Margin="0,40,0,0"/>
+      <TextBlock Text="v3.5" FontSize="10" Foreground="#22223A" Margin="0,40,0,0"/>
     </StackPanel>
 
     <!-- Right content panel -->
