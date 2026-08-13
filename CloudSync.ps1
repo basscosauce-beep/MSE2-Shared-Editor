@@ -477,17 +477,20 @@ try {
                 $chkReviewed.Content   = "I have reviewed all changes above"
             }
 
-            # History tab
-            $logLines = @(& $gitExe -C $appData log --oneline --format="%h|%ai|%s" -20 2>$null)
+            # History tab - log origin/main (not HEAD) so all users see the full
+            # history even before they've personally synced.
+            $logLines = @(& $gitExe -C $appData log origin/main --format="%h|%ai|%cn|%s" -30 2>$null)
             if ($logLines) {
                 foreach ($line in $logLines) {
-                    $parts = $line -split "\|", 3
-                    if ($parts.Count -ge 3) {
-                        $hsh = $parts[0].Trim()
-                        $dt  = $parts[1].Trim()
-                        $msg = $parts[2].Trim()
+                    $parts = $line -split "\|", 4
+                    if ($parts.Count -ge 4) {
+                        $hsh  = $parts[0].Trim()
+                        $dt   = $parts[1].Trim()
+                        $who  = $parts[2].Trim()
+                        $msg  = $parts[3].Trim()
+                        $label = if ($who) { "$who  --  $msg" } else { $msg }
                         try { $dtParsed = [datetime]::Parse($dt); $dt = $dtParsed.ToString("MMM d, h:mm tt") } catch {}
-                        $historyList.Children.Add((New-HistoryRow $hsh $dt $msg)) | Out-Null
+                        $historyList.Children.Add((New-HistoryRow $hsh $dt $label)) | Out-Null
                     }
                 }
             } else {

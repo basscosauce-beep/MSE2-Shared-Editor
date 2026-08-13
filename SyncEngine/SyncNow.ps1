@@ -388,7 +388,70 @@ if ($SkipPreview -and $PredecidedFile -and (Test-Path $PredecidedFile) -and $clo
 # ---------------------------------------------------------------
 Write-Host "Uploading your cards to the cloud..." -ForegroundColor Yellow
 & $gitCmd -C $repoDir add "Shared-Set/" *>$null
-& $gitCmd -C $repoDir commit -m "Auto-sync card updates" *>$null
+
+# Build an informative commit message so the History tab shows what actually changed
+$commitMsg = "$userName synced"
+try {
+    if ($cloudSetFile) {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        Add-Type -AssemblyName System.IO.Compression
+
+        # Read the just-merged set content
+        $czNew = [System.IO.Compression.ZipFile]::OpenRead($cloudSetFile.FullName)
+        $ceNew = $czNew.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1
+        $srNew = New-Object System.IO.StreamReader($ceNew.Open(), [System.Text.Encoding]::UTF8)
+        $newTxt = $srNew.ReadToEnd(); $srNew.Dispose(); $czNew.Dispose()
+
+        # Read the cloud BASELINE (origin/main) for diffing
+        $baseRelPath = $cloudSetFile.FullName.Substring($repoDir.TrimEnd('\').Length + 1).Replace("\", "/")
+        $baseBlob    = (& $gitCmd -C $repoDir rev-parse "origin/main:$baseRelPath" 2>$null).Trim()
+        $baseTmp     = "$env:TEMP\synccmsg_$([System.IO.Path]::GetRandomFileName()).mse-set"
+        if ($baseBlob) {
+            cmd /c ("`"" + $gitCmd + "`" -C `"" + $repoDir + "`" cat-file blob " + $baseBlob + " > `"" + $baseTmp + "`"") 2>$null
+        }
+
+        if ((Test-Path $baseTmp) -and (Get-Item $baseTmp).Length -gt 0) {
+            $czBase = [System.IO.Compression.ZipFile]::OpenRead($baseTmp)
+            $ceBase = $czBase.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1
+            $srBase = New-Object System.IO.StreamReader($ceBase.Open(), [System.Text.Encoding]::UTF8)
+            $baseTxt = $srBase.ReadToEnd(); $srBase.Dispose(); $czBase.Dispose()
+            Remove-Item $baseTmp -Force -ErrorAction SilentlyContinue
+
+            # Parse both into tc -> name maps
+            $parseMap = {
+                param($txt)
+                $m = @{}
+                $txt -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
+                    $blk = ($_ -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
+                    $tc   = if ($blk -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
+                    $name = if ($blk -match "(?m)^\s*name:\s*([^\r\n]+)")         { $matches[1].Trim() } else { "(unnamed)" }
+                    if ($tc) { $m[$tc] = $name }
+                }
+                $m
+            }
+            $newMap  = & $parseMap $newTxt
+            $baseMap = & $parseMap $baseTxt
+
+            $added   = @($newMap.Keys  | Where-Object { -not $baseMap.ContainsKey($_) } | ForEach-Object { $newMap[$_] })
+            $removed = @($baseMap.Keys | Where-Object { -not $newMap.ContainsKey($_)  } | ForEach-Object { $baseMap[$_] })
+            $total   = $newMap.Count
+
+            $parts = @("$total cards total")
+            if ($added.Count -gt 0)   { $parts += "+$($added.Count) ($($added   -join ', '))" }
+            if ($removed.Count -gt 0) { $parts += "-$($removed.Count) ($($removed -join ', '))" }
+            $commitMsg = "$userName synced -- $($parts -join ' | ')"
+        } else {
+            Remove-Item $baseTmp -Force -ErrorAction SilentlyContinue
+            $total = ($newTxt -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" }).Count
+            $commitMsg = "$userName synced -- $total cards"
+        }
+    }
+} catch {
+    # Non-fatal - fall back to simple message
+    $commitMsg = "$userName synced"
+}
+
+& $gitCmd -C $repoDir commit -m $commitMsg *>$null
 
 $pushOk = $false
 for ($pushAttempt = 1; $pushAttempt -le 3; $pushAttempt++) {
