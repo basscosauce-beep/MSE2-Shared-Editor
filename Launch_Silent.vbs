@@ -26,7 +26,40 @@ If objFSO.FileExists(strMsePathFile) Then
     fPath.Close
 End If
 
-' If path is missing or the exe no longer exists, run Setup wizard first
+' ---- Auto-migrate existing installs: check old bundled path before running wizard ----
+' This lets existing users who already had MSE2 in the MSE2\ subfolder skip the wizard entirely.
+If strMseExe = "" Or Not objFSO.FileExists(strMseExe) Then
+    ' 1. Old bundled location (MSE2 subfolder inside install dir)
+    Dim strLegacy
+    strLegacy = strDir & "\MSE2\magicseteditor.exe"
+    If objFSO.FileExists(strLegacy) Then
+        Set fWrite = objFSO.CreateTextFile(strMsePathFile, True)
+        fWrite.Write strLegacy
+        fWrite.Close
+        strMseExe = strLegacy
+    End If
+End If
+
+If strMseExe = "" Or Not objFSO.FileExists(strMseExe) Then
+    ' 2. Check common install locations without opening wizard
+    Dim arrPaths(3)
+    arrPaths(0) = "C:\Program Files\Magic Set Editor\magicseteditor.exe"
+    arrPaths(1) = "C:\Program Files (x86)\Magic Set Editor\magicseteditor.exe"
+    arrPaths(2) = objShell.ExpandEnvironmentStrings("%PROGRAMFILES%") & "\Magic Set Editor\magicseteditor.exe"
+    arrPaths(3) = objShell.ExpandEnvironmentStrings("%PROGRAMFILES(X86)%") & "\Magic Set Editor\magicseteditor.exe"
+    Dim pi
+    For pi = 0 To 3
+        If objFSO.FileExists(arrPaths(pi)) Then
+            Set fWrite = objFSO.CreateTextFile(strMsePathFile, True)
+            fWrite.Write arrPaths(pi)
+            fWrite.Close
+            strMseExe = arrPaths(pi)
+            Exit For
+        End If
+    Next
+End If
+
+' ---- Only open wizard if we still have no valid path ----
 If strMseExe = "" Or Not objFSO.FileExists(strMseExe) Then
     objShell.Run "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File """ & strDir & "\Setup.ps1""", 0, True
     ' Re-read path after wizard
