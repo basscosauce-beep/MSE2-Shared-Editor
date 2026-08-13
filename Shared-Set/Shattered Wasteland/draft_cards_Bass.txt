@@ -1,0 +1,30 @@
+﻿card:
+	has_styling: false
+	notes: 
+	time_created: 2026-08-06 20:38:01
+	time_modified: 2026-08-06 20:38:16
+	name: toast
+	image: 
+	image_2: 
+	mainframe_image: 
+	mainframe_image_2: 
+	creator: Bass
+	card_code_text: 
+	card_code_text_2: 
+	card_code_text_3:
+
+card:
+	has_styling: false
+	notes: 
+	time_created: 2026-08-06 20:40:31
+	time_modified: 2026-08-06 20:40:34
+	creator: Bass
+	name: tgest
+	image: 
+	image_2: 
+	mainframe_image: 
+	mainframe_image_2: 
+	card_code_text: 
+	card_code_text_2: 
+	card_code_text_3:
+
