@@ -509,36 +509,92 @@ try {
     $writer.Flush()
     $writer.Dispose()
 
-    $written = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
+# ===========================================================================
+# Build image-source map: for each imageN.png filename referenced by a merged
+# card, record whether LOCAL or CLOUD should supply that file.
+# This fixes art swaps caused by two cards sharing the same image filename
+# across local and cloud but the merge picking different card versions.
+# ===========================================================================
+$imageSource = @{}   # imageFilename -> "local" or "cloud"
 
-    # CLOUD images first - these are the authoritative source.
-    # Image filenames (image1.png, image2.png...) are tied to card positions in
-    # the set file. The cloud is the shared truth, so cloud images always win.
-    # If we took local images first, a local image1.png (pointing to a different
-    # card slot) would overwrite the cloud's image1.png and swap art between cards.
-    foreach ($entry in ($cloudZip.Entries | Where-Object { $_.Name -ne "set" })) {
-        $dst = $dstZip.CreateEntry($entry.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
-        $s = $entry.Open()
+# Helper: extract image filename from a card block
+function Get-CardImageFiles {
+    param([string]$cardText)
+    $imgs = @()
+    $cardText -split "\r?\n" | ForEach-Object {
+        if ($_ -match '^\s*(?:image|image_2|mainframe_image|mainframe_image_2)\s*:\s*(\S+\.(?:png|jpg|jpeg|gif|bmp|tif|tiff))') {
+            $imgs += $matches[1].Trim()
+        }
+    }
+    return $imgs
+}
+
+# For every card the merge kept, mark its image source
+foreach ($tc in $mergedCards) {
+    $cardTc = if ($tc -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
+    if (-not $cardTc) { continue }
+
+    $imgFiles = Get-CardImageFiles $tc
+
+    # Determine winning source: if card block matches local exactly -> local won; otherwise cloud won
+    $srcLocal = $localMap[$cardTc]
+    $srcCloud = $cloudMap[$cardTc]
+
+    $wentLocal = if ($srcLocal -and ($tc -eq $srcLocal)) { $true } elseif (-not $srcCloud) { $true } else { $false }
+    $source = if ($wentLocal) { "local" } else { "cloud" }
+
+    foreach ($img in $imgFiles) {
+        if (-not $imageSource.ContainsKey($img)) {
+            $imageSource[$img] = $source
+        } elseif ($source -eq "cloud") {
+            # Cloud source beats local if there's a conflict (cloud is authoritative for existing shared cards)
+            $imageSource[$img] = "cloud"
+        }
+    }
+}
+
+Write-Host "[Merge] Image source map: $($imageSource.Count) image(s) tracked." -ForegroundColor DarkGray
+
+# Build lookup dictionaries for fast access by filename
+$cloudImageMap = @{}
+$localImageMap  = @{}
+foreach ($entry in ($cloudZip.Entries | Where-Object { $_.Name -ne "set" })) {
+    $cloudImageMap[$entry.FullName] = $entry
+}
+foreach ($entry in ($localZip.Entries | Where-Object { $_.Name -ne "set" })) {
+    $localImageMap[$entry.FullName] = $entry
+}
+
+# All image filenames we need to write: union of both zips
+$allImageNames = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($k in $cloudImageMap.Keys) { $allImageNames.Add($k) | Out-Null }
+foreach ($k in $localImageMap.Keys)  { $allImageNames.Add($k) | Out-Null }
+
+foreach ($imgName in $allImageNames) {
+    # Decide which zip to pull this image from
+    $preferLocal = ($imageSource.ContainsKey($imgName) -and $imageSource[$imgName] -eq "local")
+
+    $srcEntry = $null
+    if ($preferLocal -and $localImageMap.ContainsKey($imgName)) {
+        $srcEntry = $localImageMap[$imgName]
+        Write-Host "[Merge] Image '$imgName' -> local (card won local)" -ForegroundColor DarkGray
+    } elseif ($cloudImageMap.ContainsKey($imgName)) {
+        $srcEntry = $cloudImageMap[$imgName]
+    } elseif ($localImageMap.ContainsKey($imgName)) {
+        # Cloud doesn't have it (new local-only card image)
+        $srcEntry = $localImageMap[$imgName]
+        Write-Host "[Merge] Image '$imgName' -> local (new card, not in cloud)" -ForegroundColor DarkGray
+    }
+
+    if ($srcEntry) {
+        $dst = $dstZip.CreateEntry($imgName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $s = $srcEntry.Open()
         $d = $dst.Open()
         $s.CopyTo($d)
         $s.Dispose()
         $d.Dispose()
-        $written.Add($entry.FullName) | Out-Null
     }
-
-    # Local images only for filenames NOT in the cloud (brand-new cards the user
-    # just created that haven't been pushed to cloud yet).
-    foreach ($entry in ($localZip.Entries | Where-Object { $_.Name -ne "set" })) {
-        if (-not $written.Contains($entry.FullName)) {
-            $dst = $dstZip.CreateEntry($entry.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
-            $s = $entry.Open()
-            $d = $dst.Open()
-            $s.CopyTo($d)
-            $s.Dispose()
-            $d.Dispose()
-            $written.Add($entry.FullName) | Out-Null
-        }
-    }
+}
 
     $localZip.Dispose()
     $cloudZip.Dispose()
