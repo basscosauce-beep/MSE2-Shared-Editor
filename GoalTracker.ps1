@@ -79,6 +79,28 @@ try {
         }
     }
 
+    # Auto-save MSE2 so the card count is current when the window opens
+    $mseAutoSave = Get-Process "magicseteditor" -ErrorAction SilentlyContinue |
+                   Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+    if ($mseAutoSave) {
+        try {
+            Add-Type -AssemblyName Microsoft.VisualBasic
+            Add-Type -AssemblyName System.Windows.Forms
+            $preTs = $setFile.LastWriteTime
+            $foc   = $false
+            try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseAutoSave.Id); $foc = $true } catch {}
+            if ($foc) {
+                Start-Sleep -Milliseconds 250
+                [System.Windows.Forms.SendKeys]::SendWait("^s")
+                for ($sw = 0; $sw -lt 14; $sw++) {
+                    Start-Sleep -Milliseconds 300
+                    $setFile.Refresh()
+                    if ($setFile.LastWriteTime -gt $preTs) { break }
+                }
+            }
+        } catch {}
+    }
+
     $totalCards = 0
     $zip = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
     $entry = $zip.GetEntry("set")
@@ -88,29 +110,31 @@ try {
     $reader.Close()
     $zip.Dispose()
 
-    $cardBlocks = $setContent -split "`ncard:"
-    for ($i = 1; $i -lt $cardBlocks.Length; $i++) {
-        $card = $cardBlocks[$i]
+    # Use the same split pattern as MergeSetFile so every card block is consistent
+    $rawCardBlocks = $setContent -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" }
+
+    foreach ($rawBlock in $rawCardBlocks) {
+        # Strip trailing keyword/version_control sections so parsing is clean
+        $card = ($rawBlock -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
         $totalCards++
-        
-        $cc = ""
-        $type = ""
-        $rarityRaw = ""
-        if ($card -match '(?m)^\s*casting_cost:\s*(.*)') { $cc = $matches[1].Trim() }
-        if ($card -match '(?m)^\s*super_type:\s*(.*)') { $type = $matches[1] }
-        if ($card -match '(?m)^\s*sub_type:\s*(.*)') { $type += $matches[1] }
-        if ($card -match '(?m)^\s*rarity:\s*(.*)') { $rarityRaw = $matches[1].Trim().ToLower() }
-        
+
+        $cc = ""; $superType = ""; $subType = ""; $rarityRaw = ""
+        if ($card -match '(?m)^\s*casting_cost:\s*(.+)') { $cc        = $matches[1].Trim() }
+        if ($card -match '(?m)^\s*super_type:\s*(.+)')   { $superType = $matches[1].Trim() }
+        if ($card -match '(?m)^\s*sub_type:\s*(.+)')     { $subType   = $matches[1].Trim() }
+        if ($card -match '(?m)^\s*rarity:\s*(.+)')       { $rarityRaw = $matches[1].Trim().ToLower() }
+        $type = "$superType $subType"   # space-separated so regex word boundaries work
+
         $cList = @()
         if ($cc -match 'W') { $cList += "W" }
         if ($cc -match 'U') { $cList += "U" }
         if ($cc -match 'B') { $cList += "B" }
         if ($cc -match 'R') { $cList += "R" }
         if ($cc -match 'G') { $cList += "G" }
-        
+
         $cardColor = ""
         if ($cList.Count -eq 0) { $cardColor = "Colorless" }
-        elseif ($cList.Count -gt 1) { 
+        elseif ($cList.Count -gt 1) {
             $cardColor = "Multicolor"
             if ($cList -contains "W") { $actuals["MulticolorDist_White"]++ }
             if ($cList -contains "U") { $actuals["MulticolorDist_Blue"]++ }
@@ -125,39 +149,39 @@ try {
             if ($cList[0] -eq "R") { $cardColor = "Red" }
             if ($cList[0] -eq "G") { $cardColor = "Green" }
         }
-        
+
         $cardType = ""
-        if ($type -match "Creature") { $cardType = "Creatures" }
-        elseif ($type -match "Enchantment") { $cardType = "Enchantments" }
-        elseif ($type -match "Instant" -or $type -match "Sorcery") { $cardType = "Instants/Sorceries" }
-        elseif ($type -match "Artifact") { $cardType = "Artifacts" }
-        elseif ($type -match "Land") { $cardType = "Lands" }
-        
+        if     ($type -match "Creature")        { $cardType = "Creatures" }
+        elseif ($type -match "Enchantment")     { $cardType = "Enchantments" }
+        elseif ($type -match "Instant|Sorcery") { $cardType = "Instants/Sorceries" }
+        elseif ($type -match "Artifact")        { $cardType = "Artifacts" }
+        elseif ($type -match "Land")            { $cardType = "Lands" }
+
+        # MV: strip X (variable), hybrid pips (W/U, 2/W), Phyrexian (W/P), then count
+        $ccMv = $cc -replace '(?i)x', ''           # remove X
+        $ccMv = $ccMv -replace '[A-Z2]/[A-Z]', ''  # remove hybrid pip pairs
+        $ccMv = $ccMv -replace '[^0-9A-Z]', ''     # strip non-alphanumeric leftovers
         $mv = 0
-        $ccTemp = $cc -replace '(?i)[xy\(\)/]', ''
-        if ($ccTemp -match '^(\d+)') {
+        if ($ccMv -match '^(\d+)') {
             $mv += [int]$matches[1]
-            $ccTemp = $ccTemp -replace '^\d+', ''
+            $ccMv = $ccMv.Substring($matches[1].Length)
         }
-        $mv += ($ccTemp.Length)
-        
-        $cardMv = ""
-        if ($mv -ge 7) { $cardMv = "MV 7+" }
-        else { $cardMv = "MV $mv" }
+        $mv += $ccMv.Length   # remaining chars are single-color pips (W, U, B, R, G, C, S)
+
+        $cardMv = if ($mv -ge 7) { "MV 7+" } else { "MV $mv" }
 
         $cardRarity = ""
-        if     ($rarityRaw -match "mythic")   { $cardRarity = "Mythic Rare" }
-        elseif ($rarityRaw -match "rare")     { $cardRarity = "Rare" }
-        elseif ($rarityRaw -match "uncommon") { $cardRarity = "Uncommon" }
-        elseif ($rarityRaw -match "common" -or $rarityRaw -match "basic") { $cardRarity = "Common" }
-        elseif ($rarityRaw -eq "")            { $cardRarity = "Common" }  # blank = Common (MSE2 default)
-        
-        if ($cardType) { 
-            $actuals["${cardColor}_${cardType}"]++ 
+        if     ($rarityRaw -match "mythic")                              { $cardRarity = "Mythic Rare" }
+        elseif ($rarityRaw -match "rare")                                { $cardRarity = "Rare" }
+        elseif ($rarityRaw -match "uncommon")                            { $cardRarity = "Uncommon" }
+        elseif ($rarityRaw -match "common|basic" -or $rarityRaw -eq "") { $cardRarity = "Common" }
+
+        if ($cardType) {
+            $actuals["${cardColor}_${cardType}"]++
             $actuals["Total Set_${cardType}"]++
         }
-        if ($cardMv) { 
-            $actuals["${cardColor}_${cardMv}"]++ 
+        if ($cardMv) {
+            $actuals["${cardColor}_${cardMv}"]++
             $actuals["Total Set_${cardMv}"]++
         }
         if ($cardRarity) {
@@ -165,6 +189,7 @@ try {
             $actuals["Total Set_${cardRarity}"]++
         }
     }
+
 
     # Sum Total Goals for UI display
     foreach ($cat in $allCats) {
@@ -381,6 +406,8 @@ try {
         # Lands never have a mana cost - clear MV
         if ($pickedType -eq "Lands") { $mvNum = "" }
 
+        # Reset $colorPair each call so previous Multicolor results don't bleed into next call
+        $colorPair = @()
         if ($pickedColor -eq "Multicolor") {
             $wubrg = @("White","Blue","Black","Red","Green")
             $pairW = @(foreach ($cc in $wubrg) {
@@ -1050,8 +1077,12 @@ card:
                     }
                     # Find it properly - same directory as the set file
                     $lkFile = "$($liveSetFile.Directory.FullName)\last_known_$safeUser.txt"
+                    # Compute hash the same way MergeSetFile does:
+                    # strip trailing keyword/version_control blocks and trim,
+                    # so the hash matches what the next sync will compare against.
                     $sha256 = [System.Security.Cryptography.SHA256]::Create()
-                    $cardBytes = [System.Text.Encoding]::UTF8.GetBytes($cardBlock + "`n")
+                    $strippedBlock = ($cardBlock -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
+                    $cardBytes = [System.Text.Encoding]::UTF8.GetBytes($strippedBlock)
                     $cardHex = ([System.BitConverter]::ToString($sha256.ComputeHash($cardBytes)) -replace "-","").Substring(0,16)
                     $sha256.Dispose()
                     $newEntry = "$now|$cardHex"
