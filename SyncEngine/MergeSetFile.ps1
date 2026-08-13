@@ -356,10 +356,11 @@ foreach ($tc in $localMap.Keys) {
             }
 
             if (-not $baselineHash) {
-                # No baseline available (first sync after upgrade, or brand-new card).
-                # Safe fallback: keep local. Self-corrects after one sync when hashes are written.
-                $mergedCards.Add($localCard) | Out-Null
-                Write-Host "[Merge] No baseline - keeping local: $cardName" -ForegroundColor DarkGray
+                # No baseline yet (first sync after upgrade, or brand-new card).
+                # Prefer CLOUD - it's the shared truth approved by at least one sync.
+                # Keeping local here silently discarded friends' edits for users with no baseline.
+                $mergedCards.Add($cloudCard) | Out-Null
+                Write-Host "[Merge] No baseline - using cloud: $cardName" -ForegroundColor DarkGray
             }
             else {
                 $localHash     = Get-CardHash $localCard
@@ -484,15 +485,14 @@ if ($dedupedCards.Count -ne $mergedCards.Count) {
     $mergedCards = $dedupedCards
 }
 
-$rawCardText  = $mergedCards -join ""
-$cleanParts   = $rawCardText -split "(?m)^(?=keyword:|version_control:|apprentice_code:)"
+$rawCardText   = $mergedCards -join ""
+$cleanParts    = $rawCardText -split "(?m)^(?=keyword:|version_control:|apprentice_code:)"
 $cleanCardText = ($cleanParts | Where-Object { $_ -ne "" -and $_ -notmatch "^(keyword|version_control|apprentice_code):" }) -join ""
 
 $mergedContent = $cloudHeaderNoKw + $mergedKwText + $cleanCardText
 
 # ===========================================================================
 # Temp-file swap: write merged zip without touching the live file
-# until the final Copy-Item (avoids file lock errors)
 # ===========================================================================
 $tempZipPath = [System.IO.Path]::GetTempFileName() + ".mse-set"
 

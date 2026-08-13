@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$SkipPreview,     # Set by CloudSync.ps1 - preview was already done there
     [string]$PredecidedFile   # Path to temp file with KEEP:/REMOVE:/RESTORE: decisions
 )
@@ -20,7 +20,7 @@ $repoDir = (Resolve-Path "$PSScriptRoot\..").Path
 
 # Resolve set file path up front (used in multiple places below)
 $setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
-    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*\_pre_sync_backups\*" } |
+    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" } |
     Select-Object -First 1
 
 if ($mseProc) {
@@ -139,7 +139,7 @@ if ($branch -ne "main") {
 # Retry up to 5x to handle cases where MSE2 was mid-write when killed.
 # ---------------------------------------------------------------
 $setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
-    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*\_pre_sync_backups\*" } |
+    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" } |
     Select-Object -First 1
 $localBackupPath = $null
 if ($setFile -and (Test-Path $setFile.FullName)) {
@@ -215,7 +215,7 @@ Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
 if ($localBackupPath -and (Test-Path $localBackupPath)) {
     # Resolve the cloud set file now (after git reset --hard pulled latest from cloud)
     $cloudSetFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
-        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*\_pre_sync_backups\*" } |
+        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" } |
         Select-Object -First 1
 
     # -----------------------------------------------------------------------
