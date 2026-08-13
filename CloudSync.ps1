@@ -378,6 +378,41 @@ try {
         $window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Render, [action]{})
 
         try {
+            # ----------------------------------------------------------------
+            # Auto-save MSE2 so unsaved cards appear in the diff.
+            # We send Ctrl+S and wait for the file timestamp to update.
+            # MSE2 stays open — this is just a save, not a kill.
+            # ----------------------------------------------------------------
+            $mseProc = Get-Process "magicseteditor" -ErrorAction SilentlyContinue |
+                       Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            if ($mseProc) {
+                $lastCheckedText.Text = "Saving..."
+                $window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Render, [action]{})
+                Add-Type -AssemblyName Microsoft.VisualBasic
+                Add-Type -AssemblyName System.Windows.Forms
+                $preTs = $setFile.LastWriteTime
+                $focused = $false
+                try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id); $focused = $true } catch {}
+                if ($focused) {
+                    Start-Sleep -Milliseconds 250
+                    [System.Windows.Forms.SendKeys]::SendWait("^s")
+                    # Poll up to 4 seconds for the file to update
+                    for ($sw = 0; $sw -lt 14; $sw++) {
+                        Start-Sleep -Milliseconds 300
+                        $setFile.Refresh()
+                        if ($setFile.LastWriteTime -gt $preTs) { break }
+                    }
+                    # If still not saved, send one more Ctrl+S and wait 2s
+                    if ($setFile.LastWriteTime -le $preTs) {
+                        [System.Windows.Forms.SendKeys]::SendWait("^s")
+                        Start-Sleep -Milliseconds 2000
+                        $setFile.Refresh()
+                    }
+                    # Bring Cloud Sync back to the front
+                    try { $window.Activate() } catch {}
+                }
+            }
+
             # Fetch latest from remote (read-only, no file changes)
             & $gitExe -C $appData -c "credential.helper=" remote set-url origin $remoteUrl *>$null
             & $gitExe -C $appData -c "credential.helper=" fetch origin *>$null
