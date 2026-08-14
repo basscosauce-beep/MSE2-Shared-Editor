@@ -1,4 +1,4 @@
-﻿Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.Web.Extensions
@@ -1217,9 +1217,17 @@ card:
         
         # Save to file
         $jsSer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
-        Set-Content -Path $goalsFile -Value ($jsSer.Serialize($goals))
-        
-        # Refresh window immediately to update progress bars and totals
+        $jsonOut = $jsSer.Serialize($goals)
+        try {
+            Set-Content -Path $goalsFile -Value $jsonOut -Encoding UTF8 -Force
+            $window.FindName("SavedMsg").Visibility = "Visible"
+            Write-Host "Goals saved to: $goalsFile" -ForegroundColor Green
+        } catch {
+            [System.Windows.MessageBox]::Show("Could not save goals: $_", "Save Error")
+            return
+        }
+
+        # Refresh window to show updated progress bars
         $window.Close()
         Start-Process "wscript.exe" -ArgumentList "`"$appData\GoalTracker.vbs`""
     })

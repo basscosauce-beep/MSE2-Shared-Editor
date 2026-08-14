@@ -1,4 +1,4 @@
-﻿param(
+param(
     [switch]$SkipPreview,     # Set by CloudSync.ps1 - preview was already done there
     [string]$PredecidedFile   # Path to temp file with KEEP:/REMOVE:/RESTORE: decisions
 )
@@ -203,9 +203,34 @@ if ($setFile -and (Test-Path $setFile.FullName)) {
 # STEP 2: Force-sync to the exact cloud state
 # Always fetch + reset so we never get merge conflicts on binary files
 # ---------------------------------------------------------------
+
+# Preserve the goals file across git reset (it gets overwritten otherwise)
+$goalsFileObj = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "goals_*.json" | Select-Object -First 1
+$goalsTmp     = $null
+$goalsLocalTime = $null
+if ($goalsFileObj -and (Test-Path $goalsFileObj.FullName)) {
+    $goalsTmp       = "$env:TEMP\mse_goals_$([System.IO.Path]::GetRandomFileName()).json"
+    $goalsLocalTime = $goalsFileObj.LastWriteTimeUtc
+    Copy-Item $goalsFileObj.FullName $goalsTmp -Force
+}
+
 Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
 & $gitCmd -C $repoDir @credBypass fetch origin *>$null
 & $gitCmd -C $repoDir reset --hard origin/main *>$null
+
+# Restore goals file if the local version is NEWER than what git just pulled
+# (last-editor-wins: whoever saved goals most recently keeps their version)
+if ($goalsTmp -and (Test-Path $goalsTmp)) {
+    $goalsFileObj.Refresh()
+    $goalsCloudTime = if (Test-Path $goalsFileObj.FullName) { $goalsFileObj.LastWriteTimeUtc } else { [datetime]::MinValue }
+    if ($goalsLocalTime -gt $goalsCloudTime) {
+        Copy-Item $goalsTmp $goalsFileObj.FullName -Force
+        Write-Host "Goals file preserved (local was newer)." -ForegroundColor DarkGray
+    } else {
+        Write-Host "Goals file updated from cloud (cloud was newer)." -ForegroundColor DarkGray
+    }
+    Remove-Item $goalsTmp -Force -ErrorAction SilentlyContinue
+}
 
 # ---------------------------------------------------------------
 # STEP 3: Merge any new locally-made cards back in
