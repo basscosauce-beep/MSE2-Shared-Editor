@@ -88,6 +88,34 @@ objShell.Run """" & strGit & """ -C """ & strDir & """ remote set-url origin htt
 objShell.Environment("PROCESS")("GIT_TERMINAL_PROMPT") = "0"
 objShell.Run """" & strGit & """ -C """ & strDir & """ fetch origin", 0, True
 
+' ---- Update scripts from latest repo (safe: never touches the .mse-set card data) ----
+' This is the bootstrap fix: even users on old versions get new scripts on every launch.
+' We selectively restore only non-set files so the merge engine still controls card data.
+objShell.Run """" & strGit & """ -C """ & strDir & """ checkout origin/main -- " & _
+    "SyncEngine/SyncNow.ps1 " & _
+    "SyncEngine/DedupManager.ps1 " & _
+    "SyncEngine/DedupPreview.ps1 " & _
+    "SyncEngine/MergeSetFile.ps1 " & _
+    "SyncEngine/SyncPreview.ps1 " & _
+    "SyncEngine/FillCreators.ps1 " & _
+    "SyncEngine/RecoverSet.ps1 " & _
+    "SyncEngine/sync_engine.ps1 " & _
+    "CloudSync.ps1 " & _
+    "GoalTracker.ps1 " & _
+    "Settings.ps1 " & _
+    "Graveyard.ps1 " & _
+    "Setup.ps1 " & _
+    "Launch_Silent.vbs " & _
+    "CloudSync.vbs " & _
+    "GoalTracker.vbs " & _
+    "Graveyard.vbs " & _
+    "Settings.vbs " & _
+    "RecoverCards.vbs " & _
+    "MenuAddon.cs " & _
+    "MSE2/data/magic.mse-game/custom_addons " & _
+    "MSE2/data/magic.mse-game/shared_tools_stats", _
+    0, True
+
 ' ---- First launch: run Setup wizard if no name yet ----
 If Not objFSO.FileExists(strConfigFile) Then
     objShell.Run "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File """ & strDir & "\Setup.ps1""", 0, True
