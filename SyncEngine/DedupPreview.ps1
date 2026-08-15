@@ -330,7 +330,7 @@ try {
             $deleteCount += $groups[$gi].AllCopies.Count - 1  # all but the keeper
         }
         $deleteCount = ($groups | ForEach-Object { $_.AllCopies.Count - 1 } | Measure-Object -Sum).Sum
-        $statusText.Text = "$deleteCount card(s) will be deleted — one copy of each kept"
+        $statusText.Text = "$deleteCount card(s) will be deleted -- one copy of each kept"
     }
 
     # -----------------------------------------------------------------------
