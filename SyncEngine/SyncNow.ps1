@@ -3,7 +3,7 @@ param(
     [string]$PredecidedFile   # Path to temp file with KEEP:/REMOVE:/RESTORE: decisions
 )
 
-$Host.UI.RawUI.WindowTitle = "Magic Set Editor - Sync v3.7"
+$Host.UI.RawUI.WindowTitle = "Magic Set Editor - Sync v3.8"
 
 # ---------------------------------------------------------------------------
 # Auto-save MSE2 BEFORE killing it so unsaved cards are flushed to disk.
@@ -218,6 +218,65 @@ if ($goalsFileObj -and (Test-Path $goalsFileObj.FullName)) {
 Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
 & $gitCmd -C $repoDir @credBypass fetch origin *>$null
 & $gitCmd -C $repoDir reset --hard origin/main *>$null
+
+# ---------------------------------------------------------------
+# SELF-UPDATE: Copy any changed scripts from the repo into the
+# install directory. If anything changed, relaunch and exit.
+# This is how all users stay up to date without reinstalling.
+# ---------------------------------------------------------------
+$scriptMap = @{
+    "$repoDir\SyncEngine\SyncNow.ps1"      = "$PSScriptRoot\SyncNow.ps1"
+    "$repoDir\SyncEngine\DedupManager.ps1" = "$PSScriptRoot\DedupManager.ps1"
+    "$repoDir\SyncEngine\DedupPreview.ps1" = "$PSScriptRoot\DedupPreview.ps1"
+    "$repoDir\CloudSync.ps1"               = "$repoDir\..\CloudSync.ps1"   # install root
+    "$repoDir\GoalTracker.ps1"             = "$repoDir\..\GoalTracker.ps1"
+    "$repoDir\Setup.ps1"                   = "$repoDir\..\Setup.ps1"
+}
+# Resolve install root (parent of SyncEngine)
+$installRoot = (Resolve-Path "$PSScriptRoot\..").Path
+$scriptMap = @{
+    "$repoDir\SyncEngine\SyncNow.ps1"      = "$installRoot\SyncEngine\SyncNow.ps1"
+    "$repoDir\SyncEngine\DedupManager.ps1" = "$installRoot\SyncEngine\DedupManager.ps1"
+    "$repoDir\SyncEngine\DedupPreview.ps1" = "$installRoot\SyncEngine\DedupPreview.ps1"
+    "$repoDir\CloudSync.ps1"               = "$installRoot\CloudSync.ps1"
+    "$repoDir\GoalTracker.ps1"             = "$installRoot\GoalTracker.ps1"
+    "$repoDir\Setup.ps1"                   = "$installRoot\Setup.ps1"
+}
+
+$anyUpdated = $false
+foreach ($src in $scriptMap.Keys) {
+    $dst = $scriptMap[$src]
+    if (-not (Test-Path $src)) { continue }
+    $needsCopy = $false
+    if (-not (Test-Path $dst)) {
+        $needsCopy = $true
+    } else {
+        $srcHash = (Get-FileHash $src -Algorithm MD5).Hash
+        $dstHash = (Get-FileHash $dst -Algorithm MD5).Hash
+        if ($srcHash -ne $dstHash) { $needsCopy = $true }
+    }
+    if ($needsCopy) {
+        try {
+            $dstDir = Split-Path $dst
+            if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
+            Copy-Item $src $dst -Force
+            Write-Host ("  Updated: " + (Split-Path $dst -Leaf)) -ForegroundColor Green
+            $anyUpdated = $true
+        } catch {
+            Write-Host ("  Could not update: " + (Split-Path $dst -Leaf) + " - " + $_.Exception.Message) -ForegroundColor Yellow
+        }
+    }
+}
+
+if ($anyUpdated) {
+    Write-Host "Scripts updated! Restarting sync with latest version..." -ForegroundColor Cyan
+    Start-Sleep -Milliseconds 800
+    $myArgs = @("-ExecutionPolicy", "Bypass", "-WindowStyle", "Normal", "-File", "$installRoot\SyncEngine\SyncNow.ps1")
+    if ($SkipPreview)    { $myArgs += "-SkipPreview" }
+    if ($PredecidedFile) { $myArgs += @("-PredecidedFile", $PredecidedFile) }
+    Start-Process "powershell.exe" -ArgumentList $myArgs
+    exit
+}
 
 # Restore goals file if the local version is NEWER than what git just pulled
 # (last-editor-wins: whoever saved goals most recently keeps their version)
