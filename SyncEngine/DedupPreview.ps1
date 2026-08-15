@@ -1,24 +1,18 @@
 
 # DedupPreview.ps1
-# Launched from GoalTracker. Shows duplicate groups with:
-#  - Card art thumbnails (extracted from the .mse-set zip) on each row
-#  - Per-card Restore button
-#  - Toggle to show/hide delete-pending rows
-#  - Undo All button
-#  - Confirm and Sync
+# Grid-style duplicate picker: rows = card names, columns = each copy/slot.
+# Click a column header to choose which slot to KEEP for that card.
 
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-# Window focus API
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public class WinFocus {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmd);
 }
 "@
 
@@ -39,10 +33,12 @@ try {
 
     # Read set content
     $z  = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
-    $sr = New-Object System.IO.StreamReader(($z.Entries | Where-Object { $_.Name -eq "set" }).Open(), [System.Text.Encoding]::UTF8)
+    $sr = New-Object System.IO.StreamReader(
+        ($z.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1).Open(),
+        [System.Text.Encoding]::UTF8)
     $setContent = $sr.ReadToEnd(); $sr.Dispose()
 
-    # Extract all images to a temp folder for display
+    # Extract images to temp folder
     $imgTmp = "$env:TEMP\mse_dedup_imgs_$([System.IO.Path]::GetRandomFileName())"
     New-Item -ItemType Directory -Path $imgTmp -Force | Out-Null
     foreach ($entry in ($z.Entries | Where-Object { $_.Name -match "\.(png|jpg|jpeg)$" })) {
@@ -55,7 +51,6 @@ try {
 
     # Find duplicates
     $groups = Find-DuplicateGroups $setContent
-    $totalDupes = ($groups | ForEach-Object { $_.Dupes.Count } | Measure-Object -Sum).Sum
 
     if ($groups.Count -eq 0) {
         [System.Windows.MessageBox]::Show(
@@ -65,17 +60,20 @@ try {
         exit
     }
 
-    # Restore state: set of "groupIndex_dupeIndex" strings rescued from deletion
-    $restoreSet = New-Object System.Collections.Generic.HashSet[string]
+    # keepChoice[gi] = slot index the user chose for group gi (defaults to 0 = newest)
+    $keepChoice = @{}
+    for ($gi = 0; $gi -lt $groups.Count; $gi++) {
+        $keepChoice[$gi] = [int]$groups[$gi].DefaultKeepSlot
+    }
 
-    # ---------------------------------------------------------------------------
-    # XAML
-    # ---------------------------------------------------------------------------
-    $xamlStr = @'
+    # -----------------------------------------------------------------------
+    # XAML shell
+    # -----------------------------------------------------------------------
+    $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Delete Duplicates Preview" Height="700" Width="800"
-        WindowStartupLocation="CenterScreen" Background="#0A0A14" Foreground="White"
+        Title="Delete Duplicates" Height="720" Width="900"
+        WindowStartupLocation="CenterScreen" Background="#0C0C14" Foreground="White"
         Topmost="True">
   <Window.Resources>
     <Style TargetType="TextBlock">
@@ -85,10 +83,8 @@ try {
     <Style TargetType="Button">
       <Setter Property="Foreground" Value="White"/>
       <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="Padding" Value="12,6"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FontFamily" Value="Segoe UI"/>
-      <Setter Property="FontSize" Value="12"/>
     </Style>
   </Window.Resources>
   <Grid>
@@ -99,34 +95,34 @@ try {
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <Border Grid.Row="0" Background="#1A0A0A" Padding="20,14">
-      <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="Auto"/>
-        </Grid.ColumnDefinitions>
-        <StackPanel Grid.Column="0">
-          <TextBlock Name="TitleText" Text="Delete Duplicates" FontSize="18" FontWeight="Bold" Foreground="#FCA5A5"/>
-          <TextBlock Name="SubText" FontSize="11" Foreground="#888" Margin="0,3,0,0"/>
-        </StackPanel>
-        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-          <CheckBox Name="ChkShowDeleted" Content="Show pending deletions" IsChecked="True"
-                    Foreground="#AAA" VerticalAlignment="Center" Margin="0,0,14,0" FontSize="12"/>
-          <Button Name="BtnUndoAll" Content="Undo All" Background="#374151" Padding="12,6"/>
-        </StackPanel>
-      </Grid>
+    <!-- Header -->
+    <Border Grid.Row="0" Background="#12121E" Padding="22,16">
+      <StackPanel>
+        <TextBlock Text="Delete Duplicates" FontSize="20" FontWeight="Bold" Foreground="#FCA5A5"/>
+        <TextBlock Name="SubText" FontSize="12" Foreground="#888" Margin="0,4,0,0"/>
+      </StackPanel>
     </Border>
 
-    <Border Grid.Row="1" Background="#111" Padding="20,7">
-      <TextBlock Name="InfoBar" FontSize="11" Foreground="#888"
-         Text="Green = kept (most recently modified).  Dimmed = will be deleted.  Hover card art for a larger view.  Click Restore to rescue a card."/>
+    <!-- Legend -->
+    <Border Grid.Row="1" Background="#0E0E18" Padding="22,8">
+      <StackPanel Orientation="Horizontal">
+        <Border Background="#14532D" CornerRadius="4" Padding="8,3" Margin="0,0,10,0">
+          <TextBlock Text="GREEN = KEEP" FontSize="10" FontWeight="Bold" Foreground="#4ADE80"/>
+        </Border>
+        <Border Background="#4A1414" CornerRadius="4" Padding="8,3" Margin="0,0,16,0">
+          <TextBlock Text="RED = DELETE" FontSize="10" FontWeight="Bold" Foreground="#FCA5A5"/>
+        </Border>
+        <TextBlock Text="Click any column to choose which copy to keep. Hover card art to preview." FontSize="11" Foreground="#666" VerticalAlignment="Center"/>
+      </StackPanel>
     </Border>
 
-    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="14,10,14,10">
+    <!-- Card grid -->
+    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="14,12">
       <StackPanel Name="GroupList"/>
     </ScrollViewer>
 
-    <Border Grid.Row="3" Background="#0F1629" Padding="20,14">
+    <!-- Footer -->
+    <Border Grid.Row="3" Background="#10101C" Padding="22,14">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
@@ -135,364 +131,323 @@ try {
         </Grid.ColumnDefinitions>
         <TextBlock Name="StatusText" Grid.Column="0" VerticalAlignment="Center"
                    Foreground="#888" FontSize="11"/>
-        <Button Name="BtnCancel" Grid.Column="1" Content="Cancel" Background="#374151"
-                Padding="16,9" Margin="0,0,10,0"/>
+        <Button Name="BtnCancel" Grid.Column="1" Content="Cancel"
+                Background="#2D2D3D" Padding="18,10" Margin="0,0,10,0" FontSize="13"/>
         <Button Name="BtnConfirm" Grid.Column="2" Content="Confirm and Sync"
-                Background="#B91C1C" FontWeight="Bold" Padding="20,9"/>
+                Background="#7F1D1D" FontWeight="Bold" Padding="22,10" FontSize="13"/>
       </Grid>
     </Border>
   </Grid>
 </Window>
 '@
 
-    $xml    = [xml]$xamlStr
+    $xml    = [xml]$xaml
     $reader = New-Object System.Xml.XmlNodeReader $xml
     $window = [System.Windows.Markup.XamlReader]::Load($reader)
 
-    $subText      = $window.FindName("SubText")
-    $groupList    = $window.FindName("GroupList")
-    $statusText   = $window.FindName("StatusText")
-    $btnCancel    = $window.FindName("BtnCancel")
-    $btnConfirm   = $window.FindName("BtnConfirm")
-    $btnUndoAll   = $window.FindName("BtnUndoAll")
-    $chkShowDel   = $window.FindName("ChkShowDeleted")
+    $subText    = $window.FindName("SubText")
+    $groupList  = $window.FindName("GroupList")
+    $statusText = $window.FindName("StatusText")
+    $btnCancel  = $window.FindName("BtnCancel")
+    $btnConfirm = $window.FindName("BtnConfirm")
 
-    $subText.Text = "$($groups.Count) duplicate group(s) found  -  $totalDupes card(s) queued for deletion"
+    $totalCopies = ($groups | ForEach-Object { $_.AllCopies.Count } | Measure-Object -Sum).Sum
+    $totalDeleted = $totalCopies - $groups.Count   # one kept per group
+    $subText.Text = "$($groups.Count) duplicate group(s)  ·  $totalDeleted redundant cop$(if($totalDeleted -ne 1){'ies'}else{'y'}) found"
+
     $conv = New-Object System.Windows.Media.BrushConverter
 
-    # Drop Topmost after window shows (so it doesn't stay permanently on top)
+    # Drop Topmost after load
     $window.add_Loaded({
         $window.Dispatcher.BeginInvoke(
             [System.Windows.Threading.DispatcherPriority]::Background,
-            [action]{
-                Start-Sleep -Milliseconds 400
-                $window.Topmost = $false
-            })
+            [action]{ Start-Sleep -Milliseconds 300; $window.Topmost = $false })
     })
 
-    # ---------------------------------------------------------------------------
-    # Load a BitmapImage from extracted temp folder
-    # ---------------------------------------------------------------------------
-    function Get-CardBitmap([string]$imgFile) {
+    # -----------------------------------------------------------------------
+    # Load a card art bitmap from temp folder
+    # -----------------------------------------------------------------------
+    function Get-CardBitmap([string]$imgFile, [int]$decodeH) {
         if (-not $imgFile) { return $null }
         $path = "$imgTmp\$imgFile"
         if (-not (Test-Path $path)) { return $null }
         try {
             $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
             $bmp.BeginInit()
-            $bmp.UriSource  = [Uri]::new($path)
-            $bmp.DecodePixelHeight = 180   # thumbnail size
-            $bmp.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+            $bmp.UriSource       = [Uri]::new($path)
+            $bmp.DecodePixelHeight = $decodeH
+            $bmp.CacheOption     = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
             $bmp.EndInit()
             return $bmp
         } catch { return $null }
     }
 
-    # ---------------------------------------------------------------------------
-    # Build a card art thumbnail + popup on hover
-    # ---------------------------------------------------------------------------
-    function New-ArtThumbnail([string]$imgFile) {
-        $bmp = Get-CardBitmap $imgFile
-        if (-not $bmp) {
-            $placeholder = New-Object System.Windows.Controls.Border
-            $placeholder.Width = 50; $placeholder.Height = 70
-            $placeholder.Background = $conv.ConvertFromString("#1E293B")
-            $placeholder.CornerRadius = "4"
-            $placeholder.Margin = [System.Windows.Thickness]::new(0,0,10,0)
-            $placeholder.ToolTip = "No image"
-            return $placeholder
+    # -----------------------------------------------------------------------
+    # Build one card cell (for a single copy/slot)
+    # Returns a Border that lights up green or red based on selection
+    # -----------------------------------------------------------------------
+    $allCells = [System.Collections.Generic.List[object]]::new()   # @{ Border; gi; si }
+
+    function New-CardCell($copy, [int]$gi, [int]$si) {
+
+        $cell = New-Object System.Windows.Controls.Border
+        $cell.CornerRadius   = "6"
+        $cell.Margin         = [System.Windows.Thickness]::new(4, 0, 4, 0)
+        $cell.Padding        = [System.Windows.Thickness]::new(10, 10, 10, 12)
+        $cell.Cursor         = [System.Windows.Input.Cursors]::Hand
+        $cell.BorderThickness = "2"
+        $cell.MinWidth       = 120
+
+        $sp = New-Object System.Windows.Controls.StackPanel
+        $sp.HorizontalAlignment = "Center"
+
+        # --- Card art ---
+        $thumb = New-Object System.Windows.Controls.Border
+        $thumb.Width = 80; $thumb.Height = 112
+        $thumb.CornerRadius = "4"
+        $thumb.Background = $conv.ConvertFromString("#1A1A2E")
+        $thumb.HorizontalAlignment = "Center"
+        $thumb.Margin = [System.Windows.Thickness]::new(0,0,0,8)
+
+        $bmp = Get-CardBitmap $copy.ImageFile 112
+        if ($bmp) {
+            $img = New-Object System.Windows.Controls.Image
+            $img.Source  = $bmp
+            $img.Stretch = "UniformToFill"
+            $img.HorizontalAlignment = "Center"
+            $img.VerticalAlignment   = "Center"
+            $thumb.Child = $img
+
+            # Hover popup for full-size preview
+            $popup = New-Object System.Windows.Controls.Primitives.Popup
+            $popup.Placement = "MousePoint"
+            $popup.AllowsTransparency = $true
+            $popup.StaysOpen = $false
+
+            $largeBmp = Get-CardBitmap $copy.ImageFile 420
+            if ($largeBmp) {
+                $largeImg = New-Object System.Windows.Controls.Image
+                $largeImg.Source = $largeBmp; $largeImg.Width = 300; $largeImg.Height = 420
+                $shadow = New-Object System.Windows.Controls.Border
+                $shadow.Child = $largeImg; $shadow.CornerRadius = "8"
+                $eff = New-Object System.Windows.Media.Effects.DropShadowEffect
+                $eff.Color = [System.Windows.Media.Colors]::Black
+                $eff.BlurRadius = 24; $eff.Opacity = 0.85
+                $shadow.Effect = $eff
+                $popup.Child = $shadow
+            }
+            $cap_popup = $popup
+            $thumb.add_MouseEnter({ $cap_popup.IsOpen = $true  }.GetNewClosure())
+            $thumb.add_MouseLeave({ $cap_popup.IsOpen = $false }.GetNewClosure())
         }
+        $sp.Children.Add($thumb) | Out-Null
 
-        $thumb = New-Object System.Windows.Controls.Image
-        $thumb.Source = $bmp
-        $thumb.Width  = 50; $thumb.Height = 70
-        $thumb.Margin = [System.Windows.Thickness]::new(0,0,10,0)
-        $thumb.Cursor = [System.Windows.Input.Cursors]::Hand
-        $thumb.SnapsToDevicePixels = $true
-        $thumb.RenderOptions.SetBitmapScalingMode($thumb, [System.Windows.Media.BitmapScalingMode]::HighQuality)
+        # --- Slot number label ---
+        $slotLabel = New-Object System.Windows.Controls.TextBlock
+        $slotLabel.Text = "Slot $($si + 1)"
+        $slotLabel.FontSize = 10; $slotLabel.FontWeight = "Bold"
+        $slotLabel.HorizontalAlignment = "Center"
+        $slotLabel.Margin = [System.Windows.Thickness]::new(0,0,0,4)
+        $sp.Children.Add($slotLabel) | Out-Null
 
-        # Large popup on hover
-        $popup   = New-Object System.Windows.Controls.Primitives.Popup
-        $popup.Placement = "MousePoint"
-        $popup.AllowsTransparency = $true
-        $popup.StaysOpen = $false
+        # --- Creator ---
+        $creatorTB = New-Object System.Windows.Controls.TextBlock
+        $creatorTB.Text = $copy.Creator
+        $creatorTB.FontSize = 10
+        $creatorTB.HorizontalAlignment = "Center"
+        $creatorTB.TextWrapping = "Wrap"
+        $creatorTB.MaxWidth = 110
+        $sp.Children.Add($creatorTB) | Out-Null
 
-        $largeBmp = New-Object System.Windows.Media.Imaging.BitmapImage
-        $imgPath = "$imgTmp\$imgFile"
-        try {
-            $largeBmp.BeginInit()
-            $largeBmp.UriSource = [Uri]::new($imgPath)
-            $largeBmp.DecodePixelHeight = 420
-            $largeBmp.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
-            $largeBmp.EndInit()
-        } catch { $largeBmp = $bmp }
+        # --- Modified date (short) ---
+        $modRaw = $copy.TimeModified
+        $modShort = if ($modRaw -match "(\d{4}-\d{2}-\d{2})") { $matches[1] } else { $modRaw }
+        $modTB = New-Object System.Windows.Controls.TextBlock
+        $modTB.Text = $modShort; $modTB.FontSize = 10
+        $modTB.Foreground = $conv.ConvertFromString("#888")
+        $modTB.HorizontalAlignment = "Center"
+        $modTB.Margin = [System.Windows.Thickness]::new(0,2,0,0)
+        $sp.Children.Add($modTB) | Out-Null
 
-        $largeImg = New-Object System.Windows.Controls.Image
-        $largeImg.Source = $largeBmp; $largeImg.Width = 300; $largeImg.Height = 420
-        $shadow = New-Object System.Windows.Controls.Border
-        $shadow.Child = $largeImg; $shadow.CornerRadius = "8"
-        $shadow.Effect = New-Object System.Windows.Media.Effects.DropShadowEffect
-        $shadow.Effect.Color = [System.Windows.Media.Colors]::Black
-        $shadow.Effect.BlurRadius = 20; $shadow.Effect.Opacity = 0.8
-        $popup.Child = $shadow
+        # --- KEEP badge (shown when selected) ---
+        $keepBadge = New-Object System.Windows.Controls.Border
+        $keepBadge.Background   = $conv.ConvertFromString("#14532D")
+        $keepBadge.CornerRadius = "8"
+        $keepBadge.Padding      = [System.Windows.Thickness]::new(8,2,8,2)
+        $keepBadge.Margin       = [System.Windows.Thickness]::new(0,6,0,0)
+        $keepBadge.HorizontalAlignment = "Center"
+        $keepBadgeTB = New-Object System.Windows.Controls.TextBlock
+        $keepBadgeTB.Text = "✓ KEEP"
+        $keepBadgeTB.FontSize = 10; $keepBadgeTB.FontWeight = "Bold"
+        $keepBadgeTB.Foreground = $conv.ConvertFromString("#4ADE80")
+        $keepBadge.Child = $keepBadgeTB
+        $sp.Children.Add($keepBadge) | Out-Null
 
-        $thumb.add_MouseEnter({ $popup.IsOpen = $true  }.GetNewClosure())
-        $thumb.add_MouseLeave({ $popup.IsOpen = $false }.GetNewClosure())
-        $thumb.add_MouseLeftButtonDown({ $popup.IsOpen = -not $popup.IsOpen }.GetNewClosure())
+        $cell.Child = $sp
 
-        return $thumb
+        # Store references for refresh
+        $cellObj = @{
+            Border    = $cell
+            KeepBadge = $keepBadge
+            SlotLabel = $slotLabel
+            gi        = $gi
+            si        = $si
+        }
+        $allCells.Add($cellObj) | Out-Null
+
+        return $cell
     }
 
-    # ---------------------------------------------------------------------------
-    # State helpers
-    # ---------------------------------------------------------------------------
-    $allDupeRows = [System.Collections.Generic.List[object]]::new()
+    # -----------------------------------------------------------------------
+    # Refresh all cells in a group to show which is kept vs deleted
+    # -----------------------------------------------------------------------
+    function Refresh-Group([int]$gi) {
+        $chosen = $keepChoice[$gi]
+        foreach ($cellObj in $allCells) {
+            if ($cellObj.gi -ne $gi) { continue }
+            $si = $cellObj.si
+            $border = $cellObj.Border
+            $badge  = $cellObj.KeepBadge
+            $lbl    = $cellObj.SlotLabel
 
-    function Get-PendingDeleteCount {
-        $n = 0
-        for ($gi = 0; $gi -lt $groups.Count; $gi++) {
-            for ($di = 0; $di -lt $groups[$gi].Dupes.Count; $di++) {
-                if (-not $restoreSet.Contains("${gi}_${di}")) { $n++ }
+            if ($si -eq $chosen) {
+                $border.Background   = $conv.ConvertFromString("#071A0F")
+                $border.BorderBrush  = $conv.ConvertFromString("#4ADE80")
+                $lbl.Foreground      = $conv.ConvertFromString("#4ADE80")
+                $badge.Visibility    = "Visible"
+            } else {
+                $border.Background   = $conv.ConvertFromString("#1A0A0A")
+                $border.BorderBrush  = $conv.ConvertFromString("#4A1414")
+                $lbl.Foreground      = $conv.ConvertFromString("#EF4444")
+                $badge.Visibility    = "Collapsed"
             }
         }
-        return $n
     }
 
     function Update-Status {
-        $pending = Get-PendingDeleteCount
-        $statusText.Text = "$pending card(s) will be deleted  |  $($restoreSet.Count) rescued"
+        $deleteCount = $groups.Count  # one deleted per group minimum
+        for ($gi = 0; $gi -lt $groups.Count; $gi++) {
+            $deleteCount += $groups[$gi].AllCopies.Count - 1  # all but the keeper
+        }
+        $deleteCount = ($groups | ForEach-Object { $_.AllCopies.Count - 1 } | Measure-Object -Sum).Sum
+        $statusText.Text = "$deleteCount card(s) will be deleted — one copy of each kept"
     }
 
-    # ---------------------------------------------------------------------------
-    # Build UI
-    # ---------------------------------------------------------------------------
-    function Build-UI {
-        $groupList.Children.Clear()
-        $allDupeRows.Clear()
+    # -----------------------------------------------------------------------
+    # Build the grid UI
+    # -----------------------------------------------------------------------
+    $groupList.Children.Clear()
+    $allCells.Clear()
 
-        for ($gi = 0; $gi -lt $groups.Count; $gi++) {
-            $g = $groups[$gi]
+    for ($gi = 0; $gi -lt $groups.Count; $gi++) {
+        $g = $groups[$gi]
 
-            # Group container
-            $groupBorder = New-Object System.Windows.Controls.Border
-            $groupBorder.Background   = $conv.ConvertFromString("#0D1526")
-            $groupBorder.Margin       = [System.Windows.Thickness]::new(0,4,0,4)
-            $groupBorder.CornerRadius = "6"
-            $groupBorder.BorderBrush  = $conv.ConvertFromString("#1E2A4A")
-            $groupBorder.BorderThickness = "1"
-            $groupSP = New-Object System.Windows.Controls.StackPanel
+        # Outer group container
+        $groupBorder = New-Object System.Windows.Controls.Border
+        $groupBorder.Background      = $conv.ConvertFromString("#0E0E1E")
+        $groupBorder.Margin          = [System.Windows.Thickness]::new(0, 4, 0, 4)
+        $groupBorder.CornerRadius    = "8"
+        $groupBorder.BorderBrush     = $conv.ConvertFromString("#1E1E3A")
+        $groupBorder.BorderThickness = "1"
+        $groupBorder.Padding         = [System.Windows.Thickness]::new(16, 14, 16, 14)
 
-            # --- KEEPER row ---
-            $keeperRow = New-Object System.Windows.Controls.Border
-            $keeperRow.Background = $conv.ConvertFromString("#071A0F")
-            $keeperRow.Padding    = [System.Windows.Thickness]::new(14,10,14,10)
-            $keeperRow.CornerRadius = "6,6,0,0"
+        $groupSP = New-Object System.Windows.Controls.StackPanel
 
-            $keeperGrid = New-Object System.Windows.Controls.Grid
-            $kc1 = New-Object System.Windows.Controls.ColumnDefinition; $kc1.Width = [System.Windows.GridLength]::Auto
-            $kc2 = New-Object System.Windows.Controls.ColumnDefinition; $kc2.Width = [System.Windows.GridLength]::new(1,[System.Windows.GridUnitType]::Star)
-            $kc3 = New-Object System.Windows.Controls.ColumnDefinition; $kc3.Width = [System.Windows.GridLength]::Auto
-            $keeperGrid.ColumnDefinitions.Add($kc1); $keeperGrid.ColumnDefinitions.Add($kc2); $keeperGrid.ColumnDefinitions.Add($kc3)
+        # Card name header
+        $nameRow = New-Object System.Windows.Controls.StackPanel
+        $nameRow.Orientation = "Horizontal"
+        $nameRow.Margin      = [System.Windows.Thickness]::new(0,0,0,12)
 
-            # Art thumbnail
-            $kArt = New-ArtThumbnail $g.KeeperImageFile
-            [System.Windows.Controls.Grid]::SetColumn($kArt, 0)
-            $keeperGrid.Children.Add($kArt) | Out-Null
+        $nameTB = New-Object System.Windows.Controls.TextBlock
+        $nameTB.Text       = $g.CardName
+        $nameTB.FontSize   = 15
+        $nameTB.FontWeight = "SemiBold"
+        $nameTB.VerticalAlignment = "Center"
+        $nameRow.Children.Add($nameTB) | Out-Null
 
-            # Info
-            $keeperInfo = New-Object System.Windows.Controls.StackPanel
-            $keeperInfo.VerticalAlignment = "Center"
-            $kLabel = New-Object System.Windows.Controls.TextBlock
-            $kLabel.Text = "[KEEPER]"; $kLabel.Foreground = $conv.ConvertFromString("#4ADE80")
-            $kLabel.FontSize = 10; $kLabel.FontWeight = "Bold"
-            $kName = New-Object System.Windows.Controls.TextBlock
-            $kName.Text = $g.KeeperName; $kName.FontSize = 14; $kName.FontWeight = "SemiBold"
-            $kMeta = New-Object System.Windows.Controls.TextBlock
-            $kMeta.Text = "creator: $($g.KeeperCreator)   modified: $($g.KeeperModified)"
-            $kMeta.FontSize = 10; $kMeta.Foreground = $conv.ConvertFromString("#4B7A5A")
-            $keeperInfo.Children.Add($kLabel) | Out-Null
-            $keeperInfo.Children.Add($kName)  | Out-Null
-            $keeperInfo.Children.Add($kMeta)  | Out-Null
-            [System.Windows.Controls.Grid]::SetColumn($keeperInfo, 1)
-            $keeperGrid.Children.Add($keeperInfo) | Out-Null
+        $countBadge = New-Object System.Windows.Controls.Border
+        $countBadge.Background   = $conv.ConvertFromString("#1E1E3A")
+        $countBadge.CornerRadius = "10"
+        $countBadge.Padding      = [System.Windows.Thickness]::new(8,2,8,2)
+        $countBadge.Margin       = [System.Windows.Thickness]::new(10,0,0,0)
+        $countBadge.VerticalAlignment = "Center"
+        $countTB = New-Object System.Windows.Controls.TextBlock
+        $countTB.Text       = "$($g.AllCopies.Count) copies"
+        $countTB.FontSize   = 10
+        $countTB.Foreground = $conv.ConvertFromString("#888")
+        $countBadge.Child   = $countTB
+        $nameRow.Children.Add($countBadge) | Out-Null
 
-            # Badge
-            $badge = New-Object System.Windows.Controls.Border
-            $badge.Background   = $conv.ConvertFromString("#14532D")
-            $badge.CornerRadius = "10"; $badge.Padding = [System.Windows.Thickness]::new(10,3,10,3)
-            $badge.VerticalAlignment = "Center"
-            $badgeTB = New-Object System.Windows.Controls.TextBlock
-            $badgeTB.Text = "Kept"; $badgeTB.FontSize = 11; $badgeTB.FontWeight = "Bold"
-            $badgeTB.Foreground = $conv.ConvertFromString("#4ADE80")
-            $badge.Child = $badgeTB
-            [System.Windows.Controls.Grid]::SetColumn($badge, 2)
-            $keeperGrid.Children.Add($badge) | Out-Null
+        $instructTB = New-Object System.Windows.Controls.TextBlock
+        $instructTB.Text       = "  ← click a slot to keep it"
+        $instructTB.FontSize   = 10
+        $instructTB.Foreground = $conv.ConvertFromString("#555")
+        $instructTB.VerticalAlignment = "Center"
+        $nameRow.Children.Add($instructTB) | Out-Null
 
-            $keeperRow.Child = $keeperGrid
-            $groupSP.Children.Add($keeperRow) | Out-Null
+        $groupSP.Children.Add($nameRow) | Out-Null
 
-            # Separator
-            $sep = New-Object System.Windows.Controls.Border
-            $sep.Background = $conv.ConvertFromString("#1E2A4A"); $sep.Height = 1
-            $groupSP.Children.Add($sep) | Out-Null
+        # Horizontal row of card cells
+        $cellRow = New-Object System.Windows.Controls.WrapPanel
+        $cellRow.Orientation = "Horizontal"
 
-            # --- DUPE rows ---
-            for ($di = 0; $di -lt $g.Dupes.Count; $di++) {
-                $d = $g.Dupes[$di]
-                $rowKey = "${gi}_${di}"
+        for ($si = 0; $si -lt $g.AllCopies.Count; $si++) {
+            $copy = $g.AllCopies[$si]
+            $cell = New-CardCell $copy $gi $si
 
-                $dupeRow = New-Object System.Windows.Controls.Border
-                $dupeRow.Padding = [System.Windows.Thickness]::new(14,10,14,10)
-                $allDupeRows.Add($dupeRow) | Out-Null
+            # Click = choose this slot
+            $cap_gi = $gi; $cap_si = $si
+            $cell.add_MouseLeftButtonDown({
+                $keepChoice[$cap_gi] = $cap_si
+                Refresh-Group $cap_gi
+                Update-Status
+            }.GetNewClosure())
 
-                $dupeGrid = New-Object System.Windows.Controls.Grid
-                $dc1 = New-Object System.Windows.Controls.ColumnDefinition; $dc1.Width = [System.Windows.GridLength]::Auto
-                $dc2 = New-Object System.Windows.Controls.ColumnDefinition; $dc2.Width = [System.Windows.GridLength]::new(1,[System.Windows.GridUnitType]::Star)
-                $dc3 = New-Object System.Windows.Controls.ColumnDefinition; $dc3.Width = [System.Windows.GridLength]::Auto
-                $dupeGrid.ColumnDefinitions.Add($dc1); $dupeGrid.ColumnDefinitions.Add($dc2); $dupeGrid.ColumnDefinitions.Add($dc3)
-
-                # Art thumbnail
-                $dArt = New-ArtThumbnail $d.ImageFile
-                [System.Windows.Controls.Grid]::SetColumn($dArt, 0)
-                $dupeGrid.Children.Add($dArt) | Out-Null
-
-                # Info
-                $dupeInfo = New-Object System.Windows.Controls.StackPanel
-                $dupeInfo.VerticalAlignment = "Center"
-                $dLabel = New-Object System.Windows.Controls.TextBlock; $dLabel.FontSize = 10; $dLabel.FontWeight = "Bold"
-                $dName  = New-Object System.Windows.Controls.TextBlock; $dName.FontSize = 14; $dName.FontWeight = "SemiBold"
-                $dMeta  = New-Object System.Windows.Controls.TextBlock; $dMeta.FontSize = 10
-                $dMeta.Text = "creator: $($d.Creator)   modified: $($d.TimeModified)"
-                $dupeInfo.Children.Add($dLabel) | Out-Null
-                $dupeInfo.Children.Add($dName)  | Out-Null
-                $dupeInfo.Children.Add($dMeta)  | Out-Null
-                [System.Windows.Controls.Grid]::SetColumn($dupeInfo, 1)
-                $dupeGrid.Children.Add($dupeInfo) | Out-Null
-
-                # Restore button
-                $restBtn = New-Object System.Windows.Controls.Button
-                $restBtn.Padding = [System.Windows.Thickness]::new(12,5,12,5)
-                $restBtn.FontSize = 11; $restBtn.VerticalAlignment = "Center"
-                [System.Windows.Controls.Grid]::SetColumn($restBtn, 2)
-                $dupeGrid.Children.Add($restBtn) | Out-Null
-
-                $dupeRow.Child = $dupeGrid
-                $groupSP.Children.Add($dupeRow) | Out-Null
-
-                # Captured variables for closures
-                $cap_rk    = $rowKey
-                $cap_dr    = $dupeRow
-                $cap_rb    = $restBtn
-                $cap_dl    = $dLabel
-                $cap_dn    = $dName
-                $cap_dm    = $dMeta
-                $cap_str   = $d.Name
-
-                $refreshRow = {
-                    param($rk,$dr,$rb,$dl,$dn,$dm,$nameStr)
-                    $isRestored = $restoreSet.Contains($rk)
-                    if ($isRestored) {
-                        $dr.Background   = $conv.ConvertFromString("#071A0F")
-                        $dl.Text         = "[RESTORED]"
-                        $dl.Foreground   = $conv.ConvertFromString("#4ADE80")
-                        $dn.Text         = $nameStr
-                        $dn.Foreground   = "White"
-                        $dn.TextDecorations = $null
-                        $dm.Foreground   = $conv.ConvertFromString("#4B7A5A")
-                        $rb.Content      = "Re-delete"
-                        $rb.Background   = $conv.ConvertFromString("#7F1D1D")
-                        $rb.Foreground   = $conv.ConvertFromString("#FCA5A5")
-                    } else {
-                        $dr.Background   = $conv.ConvertFromString("#1A0C0C")
-                        $dl.Text         = "[DELETE]"
-                        $dl.Foreground   = $conv.ConvertFromString("#EF4444")
-                        $dn.Text         = $nameStr
-                        $dn.Foreground   = $conv.ConvertFromString("#6B7280")
-                        $td = New-Object System.Windows.TextDecorationCollection
-                        $td.Add([System.Windows.TextDecorations]::Strikethrough)
-                        $dn.TextDecorations = $td
-                        $dm.Foreground   = $conv.ConvertFromString("#4B3333")
-                        $rb.Content      = "Restore"
-                        $rb.Background   = $conv.ConvertFromString("#14532D")
-                        $rb.Foreground   = $conv.ConvertFromString("#4ADE80")
-                    }
-                }.GetNewClosure()
-
-                # Initial render
-                & $refreshRow $cap_rk $cap_dr $cap_rb $cap_dl $cap_dn $cap_dm $cap_str
-
-                $restBtn.add_Click({
-                    if ($restoreSet.Contains($cap_rk)) { $restoreSet.Remove($cap_rk) | Out-Null }
-                    else                               { $restoreSet.Add($cap_rk)    | Out-Null }
-                    & $refreshRow $cap_rk $cap_dr $cap_rb $cap_dl $cap_dn $cap_dm $cap_str
-                    Update-Status
-                }.GetNewClosure())
-            }
-
-            $groupBorder.Child = $groupSP
-            $groupList.Children.Add($groupBorder) | Out-Null
+            $cellRow.Children.Add($cell) | Out-Null
         }
 
-        Update-Status
+        $groupSP.Children.Add($cellRow) | Out-Null
+        $groupBorder.Child = $groupSP
+        $groupList.Children.Add($groupBorder) | Out-Null
+
+        Refresh-Group $gi
     }
 
-    Build-UI
+    Update-Status
 
-    # ---------------------------------------------------------------------------
-    # Toggle
-    # ---------------------------------------------------------------------------
-    $chkShowDel.add_Checked({
-        foreach ($r in $allDupeRows) { $r.Visibility = "Visible" }
-    })
-    $chkShowDel.add_Unchecked({
-        foreach ($r in $allDupeRows) { $r.Visibility = "Collapsed" }
-    })
-
-    # ---------------------------------------------------------------------------
-    # Undo All / Cancel
-    # ---------------------------------------------------------------------------
-    $btnUndoAll.add_Click({ $restoreSet.Clear(); Build-UI })
+    # -----------------------------------------------------------------------
+    # Cancel
+    # -----------------------------------------------------------------------
     $btnCancel.add_Click({
         Remove-Item $imgTmp -Recurse -Force -ErrorAction SilentlyContinue
         $window.Close()
     })
 
-    # ---------------------------------------------------------------------------
+    # -----------------------------------------------------------------------
     # Confirm and Sync
-    # ---------------------------------------------------------------------------
+    # -----------------------------------------------------------------------
     $btnConfirm.add_Click({
         try {
             $finalGroups = [System.Collections.Generic.List[object]]::new()
             for ($gi = 0; $gi -lt $groups.Count; $gi++) {
                 $g = $groups[$gi]
-                $finalDupes = [System.Collections.Generic.List[object]]::new()
-                for ($di = 0; $di -lt $g.Dupes.Count; $di++) {
-                    if (-not $restoreSet.Contains("${gi}_${di}")) { $finalDupes.Add($g.Dupes[$di]) }
-                }
-                if ($finalDupes.Count -gt 0) {
-                    $finalGroups.Add(@{
-                        TC              = $g.TC
-                        KeeperName      = $g.KeeperName
-                        KeeperCreator   = $g.KeeperCreator
-                        KeeperModified  = $g.KeeperModified
-                        KeeperImageFile = $g.KeeperImageFile
-                        Dupes           = @($finalDupes)
-                    })
-                }
-            }
-
-            if ($finalGroups.Count -eq 0) {
-                [System.Windows.MessageBox]::Show("You restored all duplicates - nothing to delete!", "Nothing to do") | Out-Null
-                return
+                $finalGroups.Add(@{
+                    TC              = $g.TC
+                    CardName        = $g.CardName
+                    AllCopies       = $g.AllCopies
+                    ChosenKeepSlot  = [int]$keepChoice[$gi]
+                })
             }
 
             Write-PendingDedup $setDir $myName @($finalGroups)
 
-            $btnConfirm.IsEnabled = $false; $btnCancel.IsEnabled = $false
-            $statusText.Text = "Syncing..."
+            $btnConfirm.IsEnabled = $false
+            $btnCancel.IsEnabled  = $false
+            $statusText.Text      = "Syncing..."
+
             Start-Process "powershell.exe" -ArgumentList @(
-                "-ExecutionPolicy","Bypass","-WindowStyle","Normal","-File",$syncScript
-            )
+                "-ExecutionPolicy","Bypass","-WindowStyle","Normal","-File",$syncScript)
+
             Remove-Item $imgTmp -Recurse -Force -ErrorAction SilentlyContinue
             $window.Close()
         } catch {
@@ -501,8 +456,6 @@ try {
     })
 
     $window.ShowDialog() | Out-Null
-
-    # Cleanup temp images if window closed without syncing
     Remove-Item $imgTmp -Recurse -Force -ErrorAction SilentlyContinue
 
 } catch {
