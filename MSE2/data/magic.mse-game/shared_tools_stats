@@ -1,0 +1,55 @@
+
+############################################################## Shared Tools Statistics
+############################################################## Duplicate card detector
+## Added by the MSE2-Shared-Editor sync system.
+## This file is safe to edit -- it will not be overwritten by MSE2 updates.
+
+# ---------------------------------------------------------------------------
+# Duplicate Groups dimension
+# Shows cards that share the same time_created value (i.e. are exact duplicates).
+# Only the KEEPER (most recently modified) is shown in green; dupes show red.
+# Non-duplicate cards return "" and are hidden (show empty: false).
+# ---------------------------------------------------------------------------
+statistics dimension:
+	name: Duplicate Cards
+	position hint: FF00
+	icon: stats/color.png
+	description: Cards with the same time_created are duplicates from sync conflicts. The most recently modified copy is the keeper; older copies should be removed using Delete Duplicates in the Goal Tracker.
+	show empty: false
+	split list: false
+	script:
+		# Run only once per set (from the perspective of the first card).
+		# Build a list of time_created -> list of card indices.
+		# Then for each actual card, return "DUPLICATE" or "" based on whether
+		# its time_created appears more than once.
+		tc := to_text(card.time_created)
+		if tc == "" then "" else (
+			# Count how many cards share this time_created
+			set_count := length(set.cards) - 1
+			dup_count := for x from 0 to set_count do
+			(
+				if to_text(set.cards[x].time_created) == tc then 1 else 0
+			)
+			total := dup_count
+			if total <= 1 then "" else (
+				# Find the most recently modified among duplicates (the keeper)
+				keeper_mod := ""
+				for x from 0 to set_count do
+				(
+					if to_text(set.cards[x].time_created) == tc then
+					(
+						mod := to_text(set.cards[x].time_modified)
+						if mod > keeper_mod then keeper_mod := mod else nothing
+					) else nothing
+				)
+				my_mod := to_text(card.time_modified)
+				if my_mod == keeper_mod then
+					"[KEEP] " + to_text(card.name)
+				else
+					"[DUPE] " + to_text(card.name)
+			)
+		)
+	colors:
+		[KEEP]	: rgb(20, 120, 40)
+		[DUPE]	: rgb(160, 20, 20)
+
