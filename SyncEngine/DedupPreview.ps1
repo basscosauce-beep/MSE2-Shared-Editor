@@ -153,7 +153,7 @@ try {
 
     $totalCopies = ($groups | ForEach-Object { $_.AllCopies.Count } | Measure-Object -Sum).Sum
     $totalDeleted = $totalCopies - $groups.Count   # one kept per group
-    $subText.Text = "$($groups.Count) duplicate group(s)  ·  $totalDeleted redundant cop$(if($totalDeleted -ne 1){'ies'}else{'y'}) found"
+    $subText.Text = "$($groups.Count) duplicate group(s)  --  $totalDeleted redundant cop$(if($totalDeleted -ne 1){'ies'}else{'y'}) found"
 
     $conv = New-Object System.Windows.Media.BrushConverter
 
@@ -277,7 +277,7 @@ try {
         $keepBadge.Margin       = [System.Windows.Thickness]::new(0,6,0,0)
         $keepBadge.HorizontalAlignment = "Center"
         $keepBadgeTB = New-Object System.Windows.Controls.TextBlock
-        $keepBadgeTB.Text = "✓ KEEP"
+        $keepBadgeTB.Text = ">> KEEP"
         $keepBadgeTB.FontSize = 10; $keepBadgeTB.FontWeight = "Bold"
         $keepBadgeTB.Foreground = $conv.ConvertFromString("#4ADE80")
         $keepBadge.Child = $keepBadgeTB
@@ -379,7 +379,7 @@ try {
         $nameRow.Children.Add($countBadge) | Out-Null
 
         $instructTB = New-Object System.Windows.Controls.TextBlock
-        $instructTB.Text       = "  ← click a slot to keep it"
+        $instructTB.Text       = "  <- click a column to choose which to keep"
         $instructTB.FontSize   = 10
         $instructTB.Foreground = $conv.ConvertFromString("#555")
         $instructTB.VerticalAlignment = "Center"
