@@ -7,11 +7,13 @@ Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.Web.Extensions
 
 try {
     $appData  = "$env:LOCALAPPDATA\MSE2_Shared_Cloud"
     $gitExe   = "$appData\mingit\cmd\git.exe"
     $syncScript = "$appData\SyncEngine\SyncNow.ps1"
+    . "$appData\SyncEngine\DedupManager.ps1"   # Delete Duplicates helpers
     $env:GIT_TERMINAL_PROMPT = "0"
     $env:GIT_ASKPASS         = "echo"
 
@@ -134,10 +136,14 @@ try {
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <CheckBox Name="ChkReviewed" Grid.Column="0" VerticalAlignment="Center"
                   Content="I have reviewed all changes above" IsEnabled="False"/>
-        <Button Name="BtnSync" Grid.Column="1" Content="Sync Now" IsEnabled="False"
+        <Button Name="BtnDeleteDupes" Grid.Column="1" Content="elete Duplicates"
+                Background="#4A1E1E" Foreground="#FCA5A5" FontSize="12"
+                Padding="16,10" Margin="0,0,10,0"/>
+        <Button Name="BtnSync" Grid.Column="2" Content="Sync Now" IsEnabled="False"
                 Background="#1E3A1E" Foreground="#666" FontWeight="Bold" FontSize="14"
                 Padding="24,10"/>
       </Grid>
@@ -160,13 +166,14 @@ try {
     $btnSync        = $window.FindName("BtnSync")
     $btnRefresh     = $window.FindName("BtnRefresh")
     $summaryBar     = $window.FindName("SummaryBar")
+    $btnDeleteDupes = $window.FindName("BtnDeleteDupes")
 
     $window.Title    = "Cloud Sync"
     $setNameText.Text = $setFile.BaseName
 
     $conv = New-Object System.Windows.Media.BrushConverter
 
-    # State shared across scan/sync — defined at outer scope so all functions can reach them
+    # State shared across scan/sync -- defined at outer scope so all functions can reach them
     $commitMap  = $null
     $mergedMap  = $null
     $cloudMap   = $null
@@ -381,7 +388,7 @@ try {
             # ----------------------------------------------------------------
             # Auto-save MSE2 so unsaved cards appear in the diff.
             # We send Ctrl+S and wait for the file timestamp to update.
-            # MSE2 stays open — this is just a save, not a kill.
+            # MSE2 stays open -- this is just a save, not a kill.
             # ----------------------------------------------------------------
             $mseProc = Get-Process "magicseteditor" -ErrorAction SilentlyContinue |
                        Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
@@ -451,7 +458,7 @@ try {
             $mergedMap = Parse-CardMap $localContent
             $cloudMap  = Parse-CardMap $cloudContent
 
-            # commitMap starts as a copy of the local state — plain var, not $script:
+            # commitMap starts as a copy of the local state -- plain var, not $script:
             # New-CardRow receives this by reference so button clicks modify the same dict
             $commitMap = [System.Collections.Specialized.OrderedDictionary]::new()
             foreach ($k in $mergedMap.Keys) { $commitMap[$k] = $mergedMap[$k] }
@@ -476,13 +483,157 @@ try {
             $totalChanges = $adding.Count + $deleting.Count + $changed.Count
             $hasChanges   = $totalChanges -gt 0
 
+            # ----------------------------------------------------------------
+            # PENDING DEDUP BANNER -- show vote UI if pending_dedup.json on cloud
+            # ----------------------------------------------------------------
+            try {
+                $cloudDedupBlob = (& $gitExe -C $appData rev-parse "origin/main:$($setRelPath -replace '[^/]+$','')pending_dedup.json" 2>$null).Trim()
+                if ($cloudDedupBlob) {
+                    $dedupTmp = "$env:TEMP\cloudsync_dedup_$([System.IO.Path]::GetRandomFileName()).json"
+                    cmd /c ("`"" + $gitExe + "`" -C `"" + $appData + "`" cat-file blob " + $cloudDedupBlob + " > `"" + $dedupTmp + "`"") 2>$null
+                    if ((Test-Path $dedupTmp) -and (Get-Item $dedupTmp).Length -gt 0) {
+                        $jsSer   = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+                        $jsSer.MaxJsonLength = 20MB
+                        $dedupData = $jsSer.DeserializeObject((Get-Content $dedupTmp -Raw))
+                        Remove-Item $dedupTmp -Force -ErrorAction SilentlyContinue
+
+                        if ($dedupData -and $dedupData["status"] -notin @("done","cancelled")) {
+                            # Banner border
+                            $bannerBorder = New-Object System.Windows.Controls.Border
+                            $bannerBorder.Background   = $conv.ConvertFromString("#1A0800")
+                            $bannerBorder.BorderBrush  = $conv.ConvertFromString("#92400E")
+                            $bannerBorder.BorderThickness = "1"
+                            $bannerBorder.CornerRadius = "6"
+                            $bannerBorder.Margin       = [System.Windows.Thickness]::new(0,0,0,14)
+                            $bannerBorder.Padding      = [System.Windows.Thickness]::new(14,12,14,12)
+                            $bannerSP = New-Object System.Windows.Controls.StackPanel
+
+                            $bannerTitle = New-Object System.Windows.Controls.TextBlock
+                            $bannerTitle.Text = "[!] Delete Duplicates Pending -- vote required"
+                            $bannerTitle.FontSize = 13; $bannerTitle.FontWeight = "Bold"
+                            $bannerTitle.Foreground = $conv.ConvertFromString("#FCD34D")
+                            $bannerSP.Children.Add($bannerTitle) | Out-Null
+
+                            $initiator   = $dedupData["initiated_by"]
+                            $remaining   = $dedupData["syncs_remaining"]
+                            $groupCount  = if ($dedupData["groups"]) { $dedupData["groups"].Count } else { 0 }
+                            $totalDupeCount = if ($dedupData["groups"]) {
+                                ($dedupData["groups"] | ForEach-Object { if ($_.ContainsKey("dupes")) { $_.dupes.Count } else { 0 } } | Measure-Object -Sum).Sum
+                            } else { 0 }
+
+                            $bannerSub = New-Object System.Windows.Controls.TextBlock
+                            $bannerSub.Text = "$initiator wants to remove $totalDupeCount duplicate card(s) across $groupCount group(s). Purges in $remaining more sync(s). Any 'No' vote cancels it for everyone."
+                            $bannerSub.FontSize = 11; $bannerSub.Foreground = $conv.ConvertFromString("#D97706")
+                            $bannerSub.TextWrapping = "Wrap"; $bannerSub.Margin = [System.Windows.Thickness]::new(0,4,0,8)
+                            $bannerSP.Children.Add($bannerSub) | Out-Null
+
+                            # Show existing votes
+                            if ($dedupData["votes"] -and $dedupData["votes"].Count -gt 0) {
+                                $voteStr = ($dedupData["votes"].Keys | ForEach-Object { ($_ + ": " + $dedupData["votes"][$_]) }) -join "  |  "
+                                $voteTB = New-Object System.Windows.Controls.TextBlock
+                                $voteTB.Text = ("Votes so far: " + $voteStr)
+                                $voteTB.FontSize = 10; $voteTB.Foreground = $conv.ConvertFromString("#9CA3AF")
+                                $voteTB.Margin = [System.Windows.Thickness]::new(0,0,0,8)
+                                $bannerSP.Children.Add($voteTB) | Out-Null
+                            }
+
+                            # Show duplicate groups collapsible list
+                            if ($dedupData["groups"]) {
+                                foreach ($g in $dedupData["groups"]) {
+                                    $gBorder = New-Object System.Windows.Controls.Border
+                                    $gBorder.Background   = $conv.ConvertFromString("#0F1A2E")
+                                    $gBorder.CornerRadius = "4"; $gBorder.Padding = [System.Windows.Thickness]::new(10,6,10,6)
+                                    $gBorder.Margin = [System.Windows.Thickness]::new(0,2,0,2)
+                                    $gSP = New-Object System.Windows.Controls.StackPanel
+                                    $kTB = New-Object System.Windows.Controls.TextBlock
+                                    $kTB.Text = ("[KEEP] " + $g["keeper_name"] + " (by " + $g["keeper_creator"] + ", modified " + $g["keeper_modified"] + ")")
+                                    $kTB.FontSize = 11; $kTB.Foreground = $conv.ConvertFromString("#4ADE80")
+                                    $gSP.Children.Add($kTB) | Out-Null
+                                    foreach ($d in $g["dupes"]) {
+                                        $dTB = New-Object System.Windows.Controls.TextBlock
+                                        $dTB.Text = ("  [REMOVE] " + $d["name"] + " (by " + $d["creator"] + ", modified " + $d["time_modified"] + ")")
+                                        $dTB.FontSize = 11; $dTB.Foreground = $conv.ConvertFromString("#F87171")
+                                        $gSP.Children.Add($dTB) | Out-Null
+                                    }
+                                    $gBorder.Child = $gSP
+                                    $bannerSP.Children.Add($gBorder) | Out-Null
+                                }
+                            }
+
+                            # Vote buttons (only show if this user hasn't voted yet)
+                            $alreadyVoted = $dedupData["votes"] -and $dedupData["votes"].ContainsKey($myName)
+                            if (-not $alreadyVoted) {
+                                $voteSP = New-Object System.Windows.Controls.StackPanel
+                                $voteSP.Orientation = "Horizontal"
+                                $voteSP.Margin = [System.Windows.Thickness]::new(0,10,0,0)
+
+                                $capturedMyName    = $myName
+                                $capturedSyncScript= $syncScript
+                                $capturedWindow    = $window
+
+                                $btnYes = New-Object System.Windows.Controls.Button
+                                $btnYes.Content = "[Yes] Remove duplicates"
+                                $btnYes.Background = $conv.ConvertFromString("#14532D")
+                                $btnYes.Foreground = "White"; $btnYes.Padding = [System.Windows.Thickness]::new(14,7,14,7)
+                                $btnYes.Margin = [System.Windows.Thickness]::new(0,0,8,0); $btnYes.FontSize = 12
+                                $btnYes.add_Click({
+                                    Set-Content "$env:TEMP\mse_dedup_vote_${capturedMyName}.txt" -Value "yes" -Encoding UTF8
+                                    $syncA = @("-ExecutionPolicy","Bypass","-WindowStyle","Normal","-File",$capturedSyncScript)
+                                    Start-Process "powershell.exe" -ArgumentList $syncA
+                                    $capturedWindow.Close()
+                                }.GetNewClosure())
+                                $voteSP.Children.Add($btnYes) | Out-Null
+
+                                $btnNo = New-Object System.Windows.Controls.Button
+                                $btnNo.Content = "[No] Cancel this"
+                                $btnNo.Background = $conv.ConvertFromString("#7F1D1D")
+                                $btnNo.Foreground = "White"; $btnNo.Padding = [System.Windows.Thickness]::new(14,7,14,7)
+                                $btnNo.Margin = [System.Windows.Thickness]::new(0,0,8,0); $btnNo.FontSize = 12
+                                $btnNo.add_Click({
+                                    Set-Content "$env:TEMP\mse_dedup_vote_${capturedMyName}.txt" -Value "no" -Encoding UTF8
+                                    $syncA = @("-ExecutionPolicy","Bypass","-WindowStyle","Normal","-File",$capturedSyncScript)
+                                    Start-Process "powershell.exe" -ArgumentList $syncA
+                                    $capturedWindow.Close()
+                                }.GetNewClosure())
+                                $voteSP.Children.Add($btnNo) | Out-Null
+
+                                $btnSkip = New-Object System.Windows.Controls.Button
+                                $btnSkip.Content = "Skip for now"
+                                $btnSkip.Background = $conv.ConvertFromString("#1E293B")
+                                $btnSkip.Foreground = "#AAA"; $btnSkip.Padding = [System.Windows.Thickness]::new(14,7,14,7)
+                                $btnSkip.FontSize = 12
+                                $btnSkip.add_Click({ $bannerBorder.Visibility = "Collapsed" }.GetNewClosure())
+                                $voteSP.Children.Add($btnSkip) | Out-Null
+
+                                $bannerSP.Children.Add($voteSP) | Out-Null
+                            } else {
+                                $votedTB = New-Object System.Windows.Controls.TextBlock
+                                $votedTB.Text = ("[OK] You have already voted: " + $dedupData["votes"][$myName])
+                                $votedTB.FontSize = 11; $votedTB.Foreground = $conv.ConvertFromString("#6EE7B7")
+                                $votedTB.Margin = [System.Windows.Thickness]::new(0,8,0,0)
+                                $bannerSP.Children.Add($votedTB) | Out-Null
+                            }
+
+                            $bannerBorder.Child = $bannerSP
+                            $cardList.Children.Add($bannerBorder) | Out-Null
+                        }
+                    } else {
+                        Remove-Item $dedupTmp -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            } catch {
+                # Pending dedup check is non-fatal
+                [System.Diagnostics.Debug]::WriteLine("Dedup banner error: $($_.Exception.Message)")
+            }
+
             # Summary pills
+
             if ($adding.Count -gt 0)  { $summaryPanel.Children.Add((New-SummaryPill "+$($adding.Count) adding" "#15803D"))  | Out-Null }
             if ($deleting.Count -gt 0) { $summaryPanel.Children.Add((New-SummaryPill "-$($deleting.Count) deleting" "#B91C1C")) | Out-Null }
             if ($changed.Count -gt 0)  { $summaryPanel.Children.Add((New-SummaryPill "~$($changed.Count) changed" "#1D4ED8"))  | Out-Null }
             if ($totalChanges -eq 0)   { $summaryPanel.Children.Add((New-SummaryPill "Up to date" "#374151"))                   | Out-Null }
 
-            # Card sections — pass commitMap and draftFile explicitly to New-CardRow
+            # Card sections -- pass commitMap and draftFile explicitly to New-CardRow
             if ($adding.Count -gt 0) {
                 $cardList.Children.Add((New-SectionHeader "ADDING - Your new cards going up" "#14532D")) | Out-Null
                 foreach ($e in $adding) { $cardList.Children.Add((New-CardRow $e "adding" $commitMap $draftFile)) | Out-Null }
@@ -550,6 +701,159 @@ try {
     $chkReviewed.add_Unchecked({ Update-SyncButton })
 
     $btnRefresh.add_Click({ Invoke-Scan })
+
+    # =========================================================================
+    # Delete Duplicates button
+    # =========================================================================
+    $btnDeleteDupes.add_Click({
+        try {
+            # Scan local set for duplicates
+            $localContent = Read-ZipSet $setFile.FullName
+            if (-not $localContent) { [System.Windows.MessageBox]::Show("Could not read set file.", "Error"); return }
+
+            $groups = Find-DuplicateGroups $localContent
+            if ($groups.Count -eq 0) {
+                [System.Windows.MessageBox]::Show("No duplicate cards found in your set. Everything looks clean!", "No Duplicates") | Out-Null
+                return
+            }
+
+            # Build a preview dialog
+            $previewXaml = [xml]@"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Title="Delete Duplicates Preview" Height="620" Width="700"
+        WindowStartupLocation="CenterOwner" Background="#0A0A14" Foreground="White">
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+    <Border Grid.Row="0" Background="#1A0A0A" Padding="20,14">
+      <StackPanel>
+        <TextBlock Text="[!] Delete Duplicates" FontSize="18" FontWeight="Bold" Foreground="#FCA5A5"/>
+        <TextBlock Name="DedupSummaryText" Foreground="#AAA" FontSize="12" Margin="0,4,0,0"
+                   Text="Loading..."/>
+        <TextBlock Foreground="#666" FontSize="11" Margin="0,6,0,0"
+                   Text="Green = KEEPER (most recently modified). Red = DUPLICATE (will be removed after 3 syncs)."/>
+      </StackPanel>
+    </Border>
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="16,8">
+      <StackPanel Name="DedupGroupList"/>
+    </ScrollViewer>
+    <Border Grid.Row="2" Background="#0F1629" Padding="16,12">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button Name="BtnDedupUndo" Content="Undo / Cancel" Background="#374151"
+                Foreground="White" Padding="16,8" Margin="0,0,10,0" FontSize="12"/>
+        <Button Name="BtnDedupConfirm" Content="Confirm &amp; Sync" Background="#B91C1C"
+                Foreground="White" Padding="20,8" FontSize="12" FontWeight="Bold"/>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>
+"@
+            $previewReader = New-Object System.Xml.XmlNodeReader $previewXaml
+            $previewWin    = [System.Windows.Markup.XamlReader]::Load($previewReader)
+            $previewWin.Owner = $window
+
+            $dedupSummaryText = $previewWin.FindName("DedupSummaryText")
+            $dedupGroupList   = $previewWin.FindName("DedupGroupList")
+            $btnDedupUndo     = $previewWin.FindName("BtnDedupUndo")
+            $btnDedupConfirm  = $previewWin.FindName("BtnDedupConfirm")
+
+            $totalDupes = ($groups | ForEach-Object { $_.Dupes.Count } | Measure-Object -Sum).Sum
+            $dedupSummaryText.Text = "Found $($groups.Count) group(s) with $totalDupes duplicate card(s). The keeper in each group is highlighted green."
+
+            $pConv = New-Object System.Windows.Media.BrushConverter
+            foreach ($g in $groups) {
+                # Group container
+                $groupBorder = New-Object System.Windows.Controls.Border
+                $groupBorder.Background   = $pConv.ConvertFromString("#0F1A2E")
+                $groupBorder.Margin       = [System.Windows.Thickness]::new(0,4,0,4)
+                $groupBorder.Padding      = [System.Windows.Thickness]::new(12,10,12,10)
+                $groupBorder.CornerRadius = "6"
+                $groupSP = New-Object System.Windows.Controls.StackPanel
+
+                # Keeper row
+                $keeperBorder = New-Object System.Windows.Controls.Border
+                $keeperBorder.Background   = $pConv.ConvertFromString("#0A2A0A")
+                $keeperBorder.BorderBrush  = $pConv.ConvertFromString("#15803D")
+                $keeperBorder.BorderThickness = "0,0,0,0"
+                $keeperBorder.CornerRadius = "4"
+                $keeperBorder.Padding      = [System.Windows.Thickness]::new(10,6,10,6)
+                $keeperBorder.Margin       = [System.Windows.Thickness]::new(0,0,0,4)
+                $keeperSP = New-Object System.Windows.Controls.StackPanel
+                $keeperTag = New-Object System.Windows.Controls.TextBlock
+                $keeperTag.Text = "[+] KEEPING"; $keeperTag.Foreground = $pConv.ConvertFromString("#4ADE80")
+                $keeperTag.FontSize = 10; $keeperTag.FontWeight = "Bold"
+                $keeperSP.Children.Add($keeperTag) | Out-Null
+                $keeperName = New-Object System.Windows.Controls.TextBlock
+                $keeperName.Text = $g.KeeperName; $keeperName.FontSize = 13; $keeperName.FontWeight = "SemiBold"
+                $keeperName.Foreground = "White"
+                $keeperSP.Children.Add($keeperName) | Out-Null
+                $keeperMeta = New-Object System.Windows.Controls.TextBlock
+                $keeperMeta.Text = "creator: $($g.KeeperCreator)  |  modified: $($g.KeeperModified)"
+                $keeperMeta.FontSize = 10; $keeperMeta.Foreground = "#667"
+                $keeperSP.Children.Add($keeperMeta) | Out-Null
+                $keeperBorder.Child = $keeperSP
+                $groupSP.Children.Add($keeperBorder) | Out-Null
+
+                # Dupe rows
+                foreach ($d in $g.Dupes) {
+                    $dupeBorder = New-Object System.Windows.Controls.Border
+                    $dupeBorder.Background   = $pConv.ConvertFromString("#1A0A0A")
+                    $dupeBorder.CornerRadius = "4"
+                    $dupeBorder.Padding      = [System.Windows.Thickness]::new(10,6,10,6)
+                    $dupeBorder.Margin       = [System.Windows.Thickness]::new(0,0,0,2)
+                    $dupeSP = New-Object System.Windows.Controls.StackPanel
+                    $dupeTag = New-Object System.Windows.Controls.TextBlock
+                    $dupeTag.Text = "[x] REMOVING"; $dupeTag.Foreground = $pConv.ConvertFromString("#F87171")
+                    $dupeTag.FontSize = 10; $dupeTag.FontWeight = "Bold"
+                    $dupeSP.Children.Add($dupeTag) | Out-Null
+                    $dupeName = New-Object System.Windows.Controls.TextBlock
+                    $dupeName.Text = $d.Name; $dupeName.FontSize = 13; $dupeName.FontWeight = "SemiBold"
+                    $dupeName.Foreground = $pConv.ConvertFromString("#FCA5A5")
+                    $dupeSP.Children.Add($dupeName) | Out-Null
+                    $dupeMeta = New-Object System.Windows.Controls.TextBlock
+                    $dupeMeta.Text = "creator: $($d.Creator)  |  modified: $($d.TimeModified)"
+                    $dupeMeta.FontSize = 10; $dupeMeta.Foreground = "#667"
+                    $dupeSP.Children.Add($dupeMeta) | Out-Null
+                    $dupeBorder.Child = $dupeSP
+                    $groupSP.Children.Add($dupeBorder) | Out-Null
+                }
+
+                $groupBorder.Child = $groupSP
+                $dedupGroupList.Children.Add($groupBorder) | Out-Null
+            }
+
+            $dedupConfirmed = $false
+            $btnDedupUndo.add_Click({ $previewWin.Close() })
+            $btnDedupConfirm.add_Click({
+                $script:dedupConfirmed = $true
+                $previewWin.Close()
+            })
+
+            $previewWin.ShowDialog() | Out-Null
+
+            if ($script:dedupConfirmed) {
+                # Write pending_dedup.json
+                Write-PendingDedup $setDir $myName $groups
+                # Immediately trigger a sync so the json goes to cloud
+                $btnSync.IsEnabled    = $false
+                $btnRefresh.IsEnabled = $false
+                $btnDeleteDupes.IsEnabled = $false
+                $predecidedFile = "$env:TEMP\cloudsync_decisions_$([System.IO.Path]::GetRandomFileName()).txt"
+                # Build a decisions file that just keeps everything (the json is what controls dedup)
+                $lines = @()
+                if ($mergedMap) { foreach ($tc in $mergedMap.Keys) { $lines += "KEEP:$tc" } }
+                Set-Content $predecidedFile -Value $lines -Encoding UTF8
+                $syncArgs = @("-ExecutionPolicy","Bypass","-WindowStyle","Normal","-File",$syncScript,"-SkipPreview","-PredecidedFile",$predecidedFile)
+                Start-Process "powershell.exe" -ArgumentList $syncArgs
+                $window.Close()
+            }
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Delete Duplicates Error") | Out-Null
+        }
+    })
 
     $btnSync.add_Click({
         # Disable buttons immediately to prevent double-click

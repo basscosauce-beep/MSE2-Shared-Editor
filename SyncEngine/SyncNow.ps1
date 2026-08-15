@@ -1,4 +1,4 @@
-﻿param(
+param(
     [switch]$SkipPreview,     # Set by CloudSync.ps1 - preview was already done there
     [string]$PredecidedFile   # Path to temp file with KEEP:/REMOVE:/RESTORE: decisions
 )
@@ -14,6 +14,7 @@ $mseProc = Get-Process "magicseteditor" -ErrorAction SilentlyContinue | Where-Ob
 $mseExePath = $null
 
 $gitCmd = "$PSScriptRoot\..\mingit\cmd\git.exe"
+. "$PSScriptRoot\DedupManager.ps1"   # Delete Duplicates helpers
 $env:GIT_TERMINAL_PROMPT = "0"
 $env:GIT_ASKPASS = "echo"
 $repoDir = (Resolve-Path "$PSScriptRoot\..").Path
@@ -414,6 +415,36 @@ if ($SkipPreview -and $PredecidedFile -and (Test-Path $PredecidedFile) -and $clo
     }
 }
 
+# ---------------------------------------------------------------
+# STEP 5b: Handle dedup vote decision from CloudSync
+# CloudSync writes DEDUP_VOTE:yes or DEDUP_VOTE:no into the decisions file
+# ---------------------------------------------------------------
+if ($SkipPreview -and $PredecidedFile) {
+    # decisions file may have already been deleted above; read flag from a side-channel
+    # CloudSync writes a separate vote file so we can read it here
+}
+$dedupVoteFile = "$env:TEMP\mse_dedup_vote_${userName}.txt"
+if (Test-Path $dedupVoteFile) {
+    $vote = (Get-Content $dedupVoteFile -Raw -ErrorAction SilentlyContinue).Trim()
+    Remove-Item $dedupVoteFile -Force -ErrorAction SilentlyContinue
+    if ($vote -in @("yes","no") -and $cloudSetFile) {
+        $dSetDir = [System.IO.Path]::GetDirectoryName($cloudSetFile.FullName)
+        Set-DedupVote $dSetDir $userName $vote
+        Write-Host "[Dedup] Recorded vote: $vote" -ForegroundColor Cyan
+    }
+}
+
+# ---------------------------------------------------------------
+# STEP 5c: Apply pending dedup if syncs_remaining hits 0
+# ---------------------------------------------------------------
+if ($cloudSetFile) {
+    $dSetDir  = [System.IO.Path]::GetDirectoryName($cloudSetFile.FullName)
+    $vaultDir = "$dSetDir\_dedup_vault"
+    $dedupChanged = Apply-PendingDedup $cloudSetFile.FullName $dSetDir $vaultDir
+    if ($dedupChanged) {
+        Write-Host "[Dedup] Duplicate cards removed from set." -ForegroundColor Green
+    }
+}
 
 # ---------------------------------------------------------------
 # STEP 6: Commit everything (merged cards + creator fields) and push

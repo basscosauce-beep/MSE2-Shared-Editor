@@ -28,3 +28,7 @@ desktop.ini
 
 # Compiled addon (rebuilt locally)
 MenuAddon.exe
+
+# Delete Duplicates vault (local recovery only)
+Shared-Set/**/_dedup_vault/
+
