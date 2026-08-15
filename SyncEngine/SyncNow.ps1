@@ -358,6 +358,76 @@ if ($localBackupPath -and (Test-Path $localBackupPath)) {
 }
 
 # -----------------------------------------------------------------------
+# STEP 3b: Post-merge TC deduplication (safety net)
+# MergeSetFile can occasionally double cards if both the local backup and
+# cloud file contain the same images for the same TCs (e.g., right after
+# a manual dedup). This step guarantees the set file is always
+# deduplicated by time_created before committing.
+# -----------------------------------------------------------------------
+if ($cloudSetFile -and (Test-Path $cloudSetFile.FullName)) {
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        Add-Type -AssemblyName System.IO.Compression
+
+        $dedupZip = [System.IO.Compression.ZipFile]::OpenRead($cloudSetFile.FullName)
+        $dedupEn  = $dedupZip.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1
+        $dedupSr  = New-Object System.IO.StreamReader($dedupEn.Open(), [System.Text.Encoding]::UTF8)
+        $dedupTxt = $dedupSr.ReadToEnd()
+        $dedupSr.Dispose(); $dedupZip.Dispose()
+
+        $dedupParts  = $dedupTxt -split "(?m)^(?=card:)"
+        $dedupHdr    = $dedupParts[0]
+        $dedupBlocks = @($dedupParts | Where-Object { $_ -match "^card:" })
+
+        if ($dedupBlocks.Count -gt 0) {
+            $dedupSeen  = New-Object System.Collections.Generic.HashSet[string]
+            $dedupKept  = [System.Collections.Generic.List[string]]::new()
+            $dedupRemoved = 0
+
+            foreach ($blk in $dedupBlocks) {
+                $stripped = ($blk -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
+                $dedupTc  = if ($stripped -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
+                if ($dedupTc) {
+                    if ($dedupSeen.Add($dedupTc)) {
+                        $dedupKept.Add($blk)
+                    } else {
+                        $dedupRemoved++
+                    }
+                } else {
+                    $dedupKept.Add($blk)  # no TC: keep to avoid silent loss
+                }
+            }
+
+            if ($dedupRemoved -gt 0) {
+                Write-Host "[PostMerge] Removing $dedupRemoved duplicate card(s) that MergeSetFile introduced..." -ForegroundColor Yellow
+                $dedupNewTxt = $dedupHdr + ($dedupKept -join "")
+                $dedupTmp    = [System.IO.Path]::GetTempFileName() + ".mse-set"
+
+                $dedupSrcZ = [System.IO.Compression.ZipFile]::OpenRead($cloudSetFile.FullName)
+                $dedupDstZ = [System.IO.Compression.ZipFile]::Open($dedupTmp, [System.IO.Compression.ZipArchiveMode]::Create)
+
+                $dedupSe = $dedupDstZ.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
+                $dedupSw = New-Object System.IO.StreamWriter($dedupSe.Open(), [System.Text.Encoding]::UTF8)
+                $dedupSw.Write($dedupNewTxt); $dedupSw.Flush(); $dedupSw.Dispose()
+
+                foreach ($imgEnt in ($dedupSrcZ.Entries | Where-Object { $_.Name -ne "set" })) {
+                    $imgDst = $dedupDstZ.CreateEntry($imgEnt.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+                    $s = $imgEnt.Open(); $d = $imgDst.Open()
+                    $s.CopyTo($d); $s.Dispose(); $d.Dispose()
+                }
+                $dedupSrcZ.Dispose(); $dedupDstZ.Dispose()
+
+                Copy-Item $dedupTmp $cloudSetFile.FullName -Force
+                Remove-Item $dedupTmp -Force -ErrorAction SilentlyContinue
+                Write-Host "[PostMerge] Set cleaned to $($dedupKept.Count) unique cards." -ForegroundColor Green
+            }
+        }
+    } catch {
+        Write-Host "[PostMerge] Warning: post-merge dedup failed: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
+# -----------------------------------------------------------------------
 # STEP 4: Auto-fill the "By" column for any cards missing a creator
 # -----------------------------------------------------------------------
 . "$PSScriptRoot\FillCreators.ps1" -RepoDir $repoDir -GitCmd $gitCmd -CredBypass $credBypass
