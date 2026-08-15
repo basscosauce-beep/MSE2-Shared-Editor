@@ -1,9 +1,9 @@
-param(
+﻿param(
     [switch]$SkipPreview,     # Set by CloudSync.ps1 - preview was already done there
     [string]$PredecidedFile   # Path to temp file with KEEP:/REMOVE:/RESTORE: decisions
 )
 
-$Host.UI.RawUI.WindowTitle = "Magic Set Editor - Sync v3.6"
+$Host.UI.RawUI.WindowTitle = "Magic Set Editor - Sync v3.7"
 
 # ---------------------------------------------------------------------------
 # Auto-save MSE2 BEFORE killing it so unsaved cards are flushed to disk.

@@ -139,7 +139,7 @@ if ($existingMsePath -eq "" -and $autoFound -ne "") { $existingMsePath = $autoFo
       </StackPanel>
 
       <!-- Version -->
-      <TextBlock Text="v3.6" FontSize="10" Foreground="#22223A" Margin="0,40,0,0"/>
+      <TextBlock Text="v3.7" FontSize="10" Foreground="#22223A" Margin="0,40,0,0"/>
     </StackPanel>
 
     <!-- Right content panel -->
