@@ -16,10 +16,13 @@ if exist "%INSTALL_DIR%\mingit\cmd\git.exe" (
     echo Updating to latest version...
     set "PATH=%INSTALL_DIR%\mingit\cmd;%PATH%"
     set "GIT_TERMINAL_PROMPT=0"
+    set "P1=ghp_2g4dOrh3klYwVMo6o"
+    set "P2=FNfD8iUKfATTq3ezyS4"
     cd /d "%INSTALL_DIR%"
     taskkill /F /IM magicseteditor.exe >nul 2>&1
-    git fetch origin >nul 2>&1
-    git reset --hard origin/main >nul 2>&1
+    git -c credential.helper= remote set-url origin "https://basscosauce-beep:%P1%%P2%@github.com/basscosauce-beep/MSE2-Shared-Editor.git"
+    git -c credential.helper= fetch origin
+    git reset --hard origin/main
     git clean -fd >nul 2>&1
     echo Update complete!
     goto :shortcut
