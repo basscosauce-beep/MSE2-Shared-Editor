@@ -86,7 +86,7 @@ function Write-PendingDedup([string]$setDir, [string]$initiatedBy, $groups) {
         initiated_by    = [string]$initiatedBy
         initiated_at    = (Get-Date -Format "o")
         status          = "pending_approval"
-        syncs_remaining = 3
+        syncs_remaining = 1
         groups          = $groupData
         votes           = [ordered]@{ $initiatedBy = "yes" }
     }
@@ -167,48 +167,45 @@ function Apply-PendingDedup([string]$setFilePath, [string]$setDir, [string]$vaul
     $header = $parts[0]
     $cards  = @($parts | Where-Object { $_ -match "^card:" })
 
-    # For each TC group: sort the copies newest-first, keep only chosen_keep_slot index
-    $tcCopies = @{}
+    # Group cards by TC, preserving first-seen order
+    $tcGroups      = @{}
+    $tcOrder       = [System.Collections.Generic.List[string]]::new()  # first-seen order
+    $nonDedupCards = [System.Collections.Generic.List[string]]::new()  # cards not in any dup group
+
     foreach ($c in $cards) {
         $tc = if ($c -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
         if ($tc -and $keepSlotMap.ContainsKey($tc)) {
-            if (-not $tcCopies.ContainsKey($tc)) { $tcCopies[$tc] = [System.Collections.Generic.List[string]]::new() }
-            $tcCopies[$tc].Add($c)
-        }
-    }
-
-    $dedupTCs  = New-Object System.Collections.Generic.HashSet[string]
-    $keepBlocks = New-Object System.Collections.Generic.HashSet[string]  # exact block strings to keep
-
-    foreach ($tc in $keepSlotMap.Keys) {
-        $dedupTCs.Add($tc) | Out-Null
-        if ($tcCopies.ContainsKey($tc)) {
-            $sorted = @($tcCopies[$tc] | Sort-Object {
-                if ($_ -match "(?m)^\s*time_modified:\s*([^\r\n]+)") { $matches[1].Trim() } else { "" }
-            } -Descending)
-            $slot = $keepSlotMap[$tc]
-            if ($slot -lt $sorted.Count) {
-                $keepBlocks.Add($sorted[$slot]) | Out-Null
-            } else {
-                $keepBlocks.Add($sorted[0]) | Out-Null  # fallback to newest
+            if (-not $tcGroups.ContainsKey($tc)) {
+                $tcGroups[$tc] = [System.Collections.Generic.List[string]]::new()
+                $tcOrder.Add($tc) | Out-Null
             }
+            $tcGroups[$tc].Add($c)
+        } else {
+            $nonDedupCards.Add($c)
         }
     }
 
-    $seenTCs = New-Object System.Collections.Generic.HashSet[string]
+    # For each dedup TC: sort newest-first, keep only the chosen slot index
     $removed = [System.Collections.Generic.List[string]]::new()
     $kept    = [System.Collections.Generic.List[string]]::new()
 
-    foreach ($c in $cards) {
-        $tc = if ($c -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
-        if ($tc -and $dedupTCs.Contains($tc)) {
-            if ($keepBlocks.Contains($c) -and $seenTCs.Add($tc)) {
-                $kept.Add($c)   # This is the chosen keeper
+    foreach ($c in $nonDedupCards) { $kept.Add($c) }
+
+    foreach ($tc in $tcOrder) {
+        $group  = $tcGroups[$tc]
+        $sorted = @($group | Sort-Object {
+            if ($_ -match "(?m)^\s*time_modified:\s*([^\r\n]+)") { $matches[1].Trim() } else { "" }
+        } -Descending)
+
+        $slot = $keepSlotMap[$tc]
+        if ($slot -ge $sorted.Count) { $slot = 0 }   # bounds check
+
+        for ($i = 0; $i -lt $sorted.Count; $i++) {
+            if ($i -eq $slot) {
+                $kept.Add($sorted[$i])      # keeper
             } else {
-                $removed.Add($c)
+                $removed.Add($sorted[$i])   # duplicate - remove
             }
-        } else {
-            $kept.Add($c)   # Not a dup group - always keep
         }
     }
 
