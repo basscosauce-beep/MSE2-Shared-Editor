@@ -1,4 +1,4 @@
-﻿Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.Web.Extensions
@@ -321,6 +321,7 @@ try {
         
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
             <TextBlock Name="SavedMsg" Text="Saved!" Foreground="#4CAF50" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Hidden"/>
+            <Button Name="BtnDeleteDupes" Content="Delete Duplicates" Margin="0,0,8,0" Background="#4A1E1E" Foreground="#FCA5A5"/>
             <Button Name="BtnRefresh" Content="Refresh" />
             <Button Name="BtnSave" Content="Save Goals" />
         </StackPanel>
@@ -1235,6 +1236,19 @@ card:
     $window.FindName("BtnRefresh").add_Click({
         $window.Close()
         Start-Process "wscript.exe" -ArgumentList "`"$appData\GoalTracker.vbs`""
+    })
+
+    $window.FindName("BtnDeleteDupes").add_Click({
+        $previewScript = "$appData\SyncEngine\DedupPreview.ps1"
+        if (Test-Path $previewScript) {
+            Start-Process "powershell.exe" -ArgumentList @(
+                "-ExecutionPolicy", "Bypass",
+                "-WindowStyle",     "Normal",
+                "-File",            $previewScript
+            )
+        } else {
+            [System.Windows.Forms.MessageBox]::Show("DedupPreview.ps1 not found.", "Error") | Out-Null
+        }
     })
 
     $window.ShowDialog() | Out-Null
