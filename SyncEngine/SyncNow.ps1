@@ -502,6 +502,14 @@ if ($cloudSetFile) {
     $dedupChanged = Apply-PendingDedup $cloudSetFile.FullName $dSetDir $vaultDir
     if ($dedupChanged) {
         Write-Host "[Dedup] Duplicate cards removed from set." -ForegroundColor Green
+        # CRITICAL: update last_known baseline after dedup so the NEXT sync's MergeSetFile
+        # does not mistake the deleted duplicates for "locally added" cards and re-add them.
+        if ($cloudSetFile -and (Test-Path $cloudSetFile.FullName)) {
+            $safeUserD     = $userName -replace '[\\/:*?"<>|]', '_'
+            $lastKnownFile = "$dSetDir\last_known_$safeUserD.txt"
+            Save-LastKnown -SetFilePath $cloudSetFile.FullName -KnownFile $lastKnownFile
+            Write-Host "[Dedup] Hash baseline updated to post-dedup state." -ForegroundColor DarkGray
+        }
     }
 }
 
