@@ -1,4 +1,4 @@
-// MSE2 Menu Addon - Adds "Account Settings" and "Goals" to MSE2 menu bar at runtime
+﻿// MSE2 Menu Addon - Adds "Account Settings" and "Goals" to MSE2 menu bar at runtime
 // Handles MSE2's window handle changing when sets are opened/closed
 using System;
 using System.Diagnostics;
@@ -78,7 +78,7 @@ class MSEMenuAddon {
         }
 
         AppendMenu(hMenu, MF_SEPARATOR, 0, null);
-        AppendMenu(hMenu, MF_STRING, 9999,          "v3.4");
+        AppendMenu(hMenu, MF_STRING, 9999,          "v3.8");
         AppendMenu(hMenu, MF_STRING, CLOUDSYNC_ID,  "\u2601 Cloud Sync");
         AppendMenu(hMenu, MF_STRING, GOALS_ID,      "\uD83D\uDCCA Goals");
         AppendMenu(hMenu, MF_STRING, GRAVEYARD_ID,  "\u2620 Graveyard");
@@ -119,3 +119,4 @@ class MSEMenuAddon {
         }
     }
 }
+
