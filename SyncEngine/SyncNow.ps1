@@ -359,10 +359,9 @@ if ($localBackupPath -and (Test-Path $localBackupPath)) {
 
 # -----------------------------------------------------------------------
 # STEP 3b: Post-merge TC deduplication (safety net)
-# MergeSetFile can occasionally double cards if both the local backup and
-# cloud file contain the same images for the same TCs (e.g., right after
-# a manual dedup). This step guarantees the set file is always
-# deduplicated by time_created before committing.
+# MergeSetFile can occasionally output duplicate TC entries. This step
+# deduplicates by time_created but KEEPS THE MOST RECENTLY MODIFIED copy
+# so that user edits (which bump time_modified) are never reverted.
 # -----------------------------------------------------------------------
 if ($cloudSetFile -and (Test-Path $cloudSetFile.FullName)) {
     try {
@@ -379,53 +378,94 @@ if ($cloudSetFile -and (Test-Path $cloudSetFile.FullName)) {
         $dedupHdr    = $dedupParts[0]
         $dedupBlocks = @($dedupParts | Where-Object { $_ -match "^card:" })
 
-        if ($dedupBlocks.Count -gt 0) {
-            $dedupSeen  = New-Object System.Collections.Generic.HashSet[string]
-            $dedupKept  = [System.Collections.Generic.List[string]]::new()
+        # Count unique TCs to know if dedup is actually needed
+        $tcCounts = @{}
+        foreach ($blk in $dedupBlocks) {
+            $stripped = ($blk -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
+            $tc = if ($stripped -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
+            if ($tc) {
+                if ($tcCounts.ContainsKey($tc)) { $tcCounts[$tc]++ } else { $tcCounts[$tc] = 1 }
+            }
+        }
+        $dupTCs = @($tcCounts.GetEnumerator() | Where-Object { $_.Value -gt 1 }).Count
+
+        if ($dupTCs -gt 0) {
+            Write-Host "[PostMerge] $dupTCs TC groups have duplicates — keeping most recently edited copy..." -ForegroundColor Yellow
+
+            # Group all blocks by TC, pick the one with the latest time_modified
+            $bestByTC  = @{}  # TC -> best card block text
+            $bestTM    = @{}  # TC -> best time_modified (as string for compare)
+            $noTcCards = [System.Collections.Generic.List[string]]::new()
+
+            foreach ($blk in $dedupBlocks) {
+                $stripped = ($blk -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
+                $tc = if ($stripped -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
+                $tm = if ($stripped -match "(?m)^\s*time_modified:\s*([^\r\n]+)") { $matches[1].Trim() } else { "" }
+
+                if (-not $tc) {
+                    $noTcCards.Add($blk)
+                    continue
+                }
+
+                if (-not $bestByTC.ContainsKey($tc)) {
+                    $bestByTC[$tc] = $blk
+                    $bestTM[$tc]   = $tm
+                } elseif ([string]::Compare($tm, $bestTM[$tc], [System.StringComparison]::Ordinal) -gt 0) {
+                    # This copy has a later time_modified — it's the edited version, keep it
+                    $bestByTC[$tc] = $blk
+                    $bestTM[$tc]   = $tm
+                }
+            }
+
+            # Rebuild card list in original order (first occurrence order), using best version
+            $dedupKept    = [System.Collections.Generic.List[string]]::new()
+            $emittedTCs   = New-Object System.Collections.Generic.HashSet[string]
             $dedupRemoved = 0
 
             foreach ($blk in $dedupBlocks) {
                 $stripped = ($blk -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
-                $dedupTc  = if ($stripped -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
-                if ($dedupTc) {
-                    if ($dedupSeen.Add($dedupTc)) {
-                        $dedupKept.Add($blk)
-                    } else {
-                        $dedupRemoved++
-                    }
+                $tc = if ($stripped -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
+
+                if (-not $tc) { continue }  # handled via noTcCards
+
+                if ($emittedTCs.Add($tc)) {
+                    $dedupKept.Add($bestByTC[$tc])  # emit best (most recent) version
                 } else {
-                    $dedupKept.Add($blk)  # no TC: keep to avoid silent loss
+                    $dedupRemoved++  # skip duplicate
                 }
             }
 
-            if ($dedupRemoved -gt 0) {
-                Write-Host "[PostMerge] Removing $dedupRemoved duplicate card(s) that MergeSetFile introduced..." -ForegroundColor Yellow
-                $dedupNewTxt = $dedupHdr + ($dedupKept -join "")
-                $dedupTmp    = [System.IO.Path]::GetTempFileName() + ".mse-set"
+            # Append cards with no time_created at the end
+            foreach ($blk in $noTcCards) { $dedupKept.Add($blk) }
 
-                $dedupSrcZ = [System.IO.Compression.ZipFile]::OpenRead($cloudSetFile.FullName)
-                $dedupDstZ = [System.IO.Compression.ZipFile]::Open($dedupTmp, [System.IO.Compression.ZipArchiveMode]::Create)
+            Write-Host "[PostMerge] Removed $dedupRemoved duplicate(s). Kept most recent edits." -ForegroundColor Green
 
-                $dedupSe = $dedupDstZ.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
-                $dedupSw = New-Object System.IO.StreamWriter($dedupSe.Open(), [System.Text.Encoding]::UTF8)
-                $dedupSw.Write($dedupNewTxt); $dedupSw.Flush(); $dedupSw.Dispose()
+            $dedupNewTxt = $dedupHdr + ($dedupKept -join "")
+            $dedupTmp    = [System.IO.Path]::GetTempFileName() + ".mse-set"
 
-                foreach ($imgEnt in ($dedupSrcZ.Entries | Where-Object { $_.Name -ne "set" })) {
-                    $imgDst = $dedupDstZ.CreateEntry($imgEnt.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
-                    $s = $imgEnt.Open(); $d = $imgDst.Open()
-                    $s.CopyTo($d); $s.Dispose(); $d.Dispose()
-                }
-                $dedupSrcZ.Dispose(); $dedupDstZ.Dispose()
+            $dedupSrcZ = [System.IO.Compression.ZipFile]::OpenRead($cloudSetFile.FullName)
+            $dedupDstZ = [System.IO.Compression.ZipFile]::Open($dedupTmp, [System.IO.Compression.ZipArchiveMode]::Create)
 
-                Copy-Item $dedupTmp $cloudSetFile.FullName -Force
-                Remove-Item $dedupTmp -Force -ErrorAction SilentlyContinue
-                Write-Host "[PostMerge] Set cleaned to $($dedupKept.Count) unique cards." -ForegroundColor Green
+            $dedupSe = $dedupDstZ.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
+            $dedupSw = New-Object System.IO.StreamWriter($dedupSe.Open(), [System.Text.Encoding]::UTF8)
+            $dedupSw.Write($dedupNewTxt); $dedupSw.Flush(); $dedupSw.Dispose()
+
+            foreach ($imgEnt in ($dedupSrcZ.Entries | Where-Object { $_.Name -ne "set" })) {
+                $imgDst = $dedupDstZ.CreateEntry($imgEnt.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+                $s = $imgEnt.Open(); $d = $imgDst.Open()
+                $s.CopyTo($d); $s.Dispose(); $d.Dispose()
             }
+            $dedupSrcZ.Dispose(); $dedupDstZ.Dispose()
+
+            Copy-Item $dedupTmp $cloudSetFile.FullName -Force
+            Remove-Item $dedupTmp -Force -ErrorAction SilentlyContinue
+            Write-Host "[PostMerge] Set written: $($dedupKept.Count) unique cards." -ForegroundColor Green
         }
     } catch {
         Write-Host "[PostMerge] Warning: post-merge dedup failed: $($_.Exception.Message)" -ForegroundColor Yellow
     }
 }
+
 
 # -----------------------------------------------------------------------
 # STEP 4: Auto-fill the "By" column for any cards missing a creator
