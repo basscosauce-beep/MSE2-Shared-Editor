@@ -3,7 +3,7 @@ param(
     [string]$PredecidedFile   # Path to temp file with KEEP:/REMOVE:/RESTORE: decisions
 )
 
-$Host.UI.RawUI.WindowTitle = "Magic Set Editor - Sync v3.8"
+$Host.UI.RawUI.WindowTitle = "Magic Set Editor - Sync v4.0"
 
 # ---------------------------------------------------------------------------
 # Auto-save MSE2 BEFORE killing it so unsaved cards are flushed to disk.
