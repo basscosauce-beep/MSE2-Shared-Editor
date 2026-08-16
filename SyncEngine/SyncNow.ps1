@@ -390,7 +390,7 @@ if ($cloudSetFile -and (Test-Path $cloudSetFile.FullName)) {
         $dupTCs = @($tcCounts.GetEnumerator() | Where-Object { $_.Value -gt 1 }).Count
 
         if ($dupTCs -gt 0) {
-            Write-Host "[PostMerge] $dupTCs TC groups have duplicates — keeping most recently edited copy..." -ForegroundColor Yellow
+            Write-Host "[PostMerge] $dupTCs TC groups have duplicates -- keeping most recently edited copy..." -ForegroundColor Yellow
 
             # Group all blocks by TC, pick the one with the latest time_modified
             $bestByTC  = @{}  # TC -> best card block text
@@ -411,7 +411,7 @@ if ($cloudSetFile -and (Test-Path $cloudSetFile.FullName)) {
                     $bestByTC[$tc] = $blk
                     $bestTM[$tc]   = $tm
                 } elseif ([string]::Compare($tm, $bestTM[$tc], [System.StringComparison]::Ordinal) -gt 0) {
-                    # This copy has a later time_modified — it's the edited version, keep it
+                    # This copy has a later time_modified -- it's the edited version, keep it
                     $bestByTC[$tc] = $blk
                     $bestTM[$tc]   = $tm
                 }
