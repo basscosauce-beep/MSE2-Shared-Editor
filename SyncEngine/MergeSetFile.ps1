@@ -344,52 +344,26 @@ foreach ($tc in $localMap.Keys) {
             $mergedCards.Add($localCard) | Out-Null
         }
         else {
-            # Content differs - resolve using change detection
-            $cardName = Get-CardName $localCard $tc
+            # Content differs - use time_modified to determine who edited more recently.
+            # This is simpler and more reliable than hash comparison:
+            #   - Hash comparison breaks when MSE2 reformats text on save (false "both changed")
+            #   - time_modified is set by MSE2 whenever a user actually edits a card
+            #   - Format is "YYYY-MM-DD HH:MM:SS" which is lexicographically sortable
+            $cardName  = Get-CardName $localCard $tc
+            $localTM   = if ($localCard  -match "(?m)^\s*time_modified:\s*([^\r\n]+)") { $matches[1].Trim() } else { "" }
+            $cloudTM   = if ($cloudCard  -match "(?m)^\s*time_modified:\s*([^\r\n]+)") { $matches[1].Trim() } else { "" }
 
-            # Look up the baseline hash we saved after last sync
-            if ($lastKnownHash.ContainsKey($tc)) {
-                $baselineHash = $lastKnownHash[$tc]
+            if ([string]::Compare($localTM, $cloudTM, [System.StringComparison]::Ordinal) -ge 0) {
+                # Local is same age or newer -> local wins
+                $mergedCards.Add($localCard) | Out-Null
+                if ($localTM -ne $cloudTM) {
+                    Write-Host "[Merge] Your edit wins ($localTM > $cloudTM): $cardName" -ForegroundColor Cyan
+                }
             }
             else {
-                $baselineHash = $null
-            }
-
-            if (-not $baselineHash) {
-                # No baseline yet (first sync after upgrade, or brand-new card).
-                # Prefer CLOUD - it's the shared truth approved by at least one sync.
-                # Keeping local here silently discarded friends' edits for users with no baseline.
+                # Cloud is strictly newer -> cloud wins
                 $mergedCards.Add($cloudCard) | Out-Null
-                Write-Host "[Merge] No baseline - using cloud: $cardName" -ForegroundColor DarkGray
-            }
-            else {
-                $localHash     = Get-CardHash $localCard
-                $cloudHash     = Get-CardHash $cloudCard
-                $userChanged   = ($localHash  -ne $baselineHash)
-                $friendChanged = ($cloudHash  -ne $baselineHash)
-
-                if ($userChanged -and (-not $friendChanged)) {
-                    # Only user changed -> user wins
-                    $mergedCards.Add($localCard) | Out-Null
-                    Write-Host "[Merge] Your edit wins: $cardName" -ForegroundColor Cyan
-                }
-                elseif ($friendChanged -and (-not $userChanged)) {
-                    # Only friend changed -> cloud wins
-                    $mergedCards.Add($cloudCard) | Out-Null
-                    Write-Host "[Merge] Friend's edit wins: $cardName" -ForegroundColor DarkCyan
-                }
-                else {
-                    # Both changed -> creator wins as tiebreaker
-                    $creator = Get-CardCreator $localCard
-                    if ($creator -eq $UserName) {
-                        $mergedCards.Add($localCard) | Out-Null
-                        Write-Host "[Merge] Both edited, your card wins: $cardName" -ForegroundColor Cyan
-                    }
-                    else {
-                        $mergedCards.Add($cloudCard) | Out-Null
-                        Write-Host "[Merge] Both edited, friend's card wins: $cardName" -ForegroundColor DarkCyan
-                    }
-                }
+                Write-Host "[Merge] Friend's edit wins ($cloudTM > $localTM): $cardName" -ForegroundColor DarkCyan
             }
         }
     }
