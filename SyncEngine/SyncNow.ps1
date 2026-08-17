@@ -1,6 +1,7 @@
 param(
-    [switch]$SkipPreview,     # Set by CloudSync.ps1 - preview was already done there
-    [string]$PredecidedFile   # Path to temp file with KEEP:/REMOVE:/RESTORE: decisions
+    [switch]$SkipPreview,      # Set by CloudSync.ps1 - preview was already done there
+    [string]$PredecidedFile,   # Path to temp file with KEEP:/REMOVE:/RESTORE: decisions
+    [string]$HandoffBackup     # Backup path handed from a self-update restart (skip re-backup)
 )
 
 $Host.UI.RawUI.WindowTitle = "Magic Set Editor - Sync v4.0"
@@ -83,15 +84,31 @@ if ($mseProc) {
     }
 }
 
-# Kill MSE2 so file locks are released
-Write-Host "Closing Magic Set Editor..." -ForegroundColor Yellow
-Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
-Stop-Process -Name "MenuAddon"      -Force -ErrorAction SilentlyContinue
+# ---------------------------------------------------------------------------
+# STEP 1 (pre-flight): If we're a self-update restart, reuse the backup the
+# first process already captured.  Skip MSE2 kill+autosave -- it was done
+# in the first process.
+# ---------------------------------------------------------------------------
+if ($HandoffBackup -and (Test-Path $HandoffBackup)) {
+    Write-Host "[Self-update restart] Reusing pre-update backup: $HandoffBackup" -ForegroundColor Cyan
+    # Set variables expected by later stages
+    $localBackupPath = $HandoffBackup
+    $handoffMode     = $true
+} else {
+    $handoffMode     = $false
+}
 
-# Poll every 250ms until gone (typically < 500ms)
-for ($w = 0; $w -lt 20; $w++) {
-    Start-Sleep -Milliseconds 250
-    if (-not (Get-Process "magicseteditor" -ErrorAction SilentlyContinue)) { break }
+# ---------------------------------------------------------------------------
+# MSE2 kill (skip in handoff mode - first process already killed it)
+# ---------------------------------------------------------------------------
+if (-not $handoffMode) {
+    Write-Host "Closing Magic Set Editor..." -ForegroundColor Yellow
+    Stop-Process -Name "magicseteditor" -Force -ErrorAction SilentlyContinue
+    Stop-Process -Name "MenuAddon"      -Force -ErrorAction SilentlyContinue
+    for ($w = 0; $w -lt 20; $w++) {
+        Start-Sleep -Milliseconds 250
+        if (-not (Get-Process "magicseteditor" -ErrorAction SilentlyContinue)) { break }
+    }
 }
 Write-Host "Syncing with cloud..." -ForegroundColor Cyan
 
@@ -136,69 +153,67 @@ if ($branch -ne "main") {
 
 
 # ---------------------------------------------------------------
-# STEP 1: Back up the local set file AFTER MSE2 is closed.
-# Retry up to 5x to handle cases where MSE2 was mid-write when killed.
+# STEP 1: Back up the local set file (skip in handoff mode --
+# the first process already captured the backup before git reset)
 # ---------------------------------------------------------------
-$setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
-    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" } |
-    Select-Object -First 1
-$localBackupPath = $null
-if ($setFile -and (Test-Path $setFile.FullName)) {
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $backupOk = $false
-    for ($attempt = 1; $attempt -le 5; $attempt++) {
-        try {
-            $testZip = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
-            $testEntry = $testZip.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1
-            if ($testEntry) {
-                $testSr = New-Object System.IO.StreamReader($testEntry.Open(), [System.Text.Encoding]::UTF8)
-                $testTxt = $testSr.ReadToEnd(); $testSr.Dispose()
-                $testCardCount = ($testTxt -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" }).Count
-                $testZip.Dispose()
-                if ($testCardCount -gt 0) {
-                    $backupOk = $true
-                    Write-Host "Local file verified: $testCardCount cards found." -ForegroundColor DarkCyan
-                    break
+if (-not $handoffMode) {
+    $setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
+        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" } |
+        Select-Object -First 1
+    $localBackupPath = $null
+    if ($setFile -and (Test-Path $setFile.FullName)) {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $backupOk = $false
+        for ($attempt = 1; $attempt -le 5; $attempt++) {
+            try {
+                $testZip = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
+                $testEntry = $testZip.Entries | Where-Object { $_.Name -eq "set" } | Select-Object -First 1
+                if ($testEntry) {
+                    $testSr = New-Object System.IO.StreamReader($testEntry.Open(), [System.Text.Encoding]::UTF8)
+                    $testTxt = $testSr.ReadToEnd(); $testSr.Dispose()
+                    $testCardCount = ($testTxt -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" }).Count
+                    $testZip.Dispose()
+                    if ($testCardCount -gt 0) {
+                        $backupOk = $true
+                        Write-Host "Local file verified: $testCardCount cards found." -ForegroundColor DarkCyan
+                        break
+                    } else {
+                        Write-Host ("Attempt {0}: local file has 0 cards - waiting for disk flush..." -f $attempt) -ForegroundColor Yellow
+                    }
                 } else {
-                    Write-Host ("Attempt {0}: local file has 0 cards - waiting for disk flush..." -f $attempt) -ForegroundColor Yellow
+                    $testZip.Dispose()
+                    Write-Host ("Attempt {0}: local zip has no 'set' entry - waiting..." -f $attempt) -ForegroundColor Yellow
                 }
-            } else {
-                $testZip.Dispose()
-                Write-Host ("Attempt {0}: local zip has no 'set' entry - waiting..." -f $attempt) -ForegroundColor Yellow
+            } catch {
+                $errMsg = $_.Exception.Message
+                Write-Host ("Attempt {0}: local file not readable yet ({1}) - waiting..." -f $attempt, $errMsg) -ForegroundColor Yellow
             }
-        } catch {
-            $errMsg = $_.Exception.Message
-            Write-Host ("Attempt {0}: local file not readable yet ({1}) - waiting..." -f $attempt, $errMsg) -ForegroundColor Yellow
+            Start-Sleep -Seconds 2
         }
-        Start-Sleep -Seconds 2
-    }
 
-    if ($backupOk) {
-        $localBackupPath = "$env:TEMP\mse_local_backup_$([System.IO.Path]::GetRandomFileName()).mse-set"
-        Copy-Item $setFile.FullName $localBackupPath -Force
-        Write-Host "Local cards backed up for merge." -ForegroundColor DarkCyan
-    } else {
-        Write-Host "" -ForegroundColor Red
-        Write-Host "=========================================================" -ForegroundColor Red
-        Write-Host " WARNING: Could not read local set file after 5 attempts." -ForegroundColor Red
-        Write-Host " Your LOCAL card changes may not be synced this time." -ForegroundColor Red
-        Write-Host " Cloud cards will be downloaded safely." -ForegroundColor Red
-        Write-Host "=========================================================" -ForegroundColor Red
-        Write-Host "" -ForegroundColor Red
+        if ($backupOk) {
+            $localBackupPath = "$env:TEMP\mse_local_backup_$([System.IO.Path]::GetRandomFileName()).mse-set"
+            Copy-Item $setFile.FullName $localBackupPath -Force
+            Write-Host "Local cards backed up for merge." -ForegroundColor DarkCyan
+        } else {
+            Write-Host "" -ForegroundColor Red
+            Write-Host "=========================================================" -ForegroundColor Red
+            Write-Host " WARNING: Could not read local set file after 5 attempts." -ForegroundColor Red
+            Write-Host " Your LOCAL card changes may not be synced this time."     -ForegroundColor Red
+            Write-Host " Cloud cards will be downloaded safely."                    -ForegroundColor Red
+            Write-Host "=========================================================" -ForegroundColor Red
+            Write-Host "" -ForegroundColor Red
+        }
+        # Safety backup before git reset
+        $safeBackupDir = "$repoDir\Shared-Set\_pre_sync_backups"
+        if (-not (Test-Path $safeBackupDir)) { New-Item -ItemType Directory -Path $safeBackupDir -Force | Out-Null }
+        $safeStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+        Copy-Item $setFile.FullName "$safeBackupDir\backup_${safeStamp}_${userName}.mse-set" -Force
+        Get-ChildItem $safeBackupDir -Filter "backup_*_${userName}.mse-set" |
+            Sort-Object LastWriteTime -Descending | Select-Object -Skip 20 |
+            Remove-Item -Force -ErrorAction SilentlyContinue
     }
-    # ---------------------------------------------------------------
-    # SAFETY NET: Save a timestamped backup before the git reset.
-    # Even if merge fails, these files are recoverable forever.
-    # ---------------------------------------------------------------
-    $safeBackupDir = "$repoDir\Shared-Set\_pre_sync_backups"
-    if (-not (Test-Path $safeBackupDir)) { New-Item -ItemType Directory -Path $safeBackupDir -Force | Out-Null }
-    $safeStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-    Copy-Item $setFile.FullName "$safeBackupDir\backup_${safeStamp}_${userName}.mse-set" -Force
-    # Keep only the 20 most recent backups per user
-    Get-ChildItem $safeBackupDir -Filter "backup_*_${userName}.mse-set" |
-        Sort-Object LastWriteTime -Descending | Select-Object -Skip 20 |
-        Remove-Item -Force -ErrorAction SilentlyContinue
-}
+} # end if (-not $handoffMode)
 
 # ---------------------------------------------------------------
 # STEP 2: Force-sync to the exact cloud state
@@ -265,6 +280,11 @@ if ($anyUpdated) {
     $myArgs = @("-ExecutionPolicy", "Bypass", "-WindowStyle", "Normal", "-File", "$installRoot\SyncEngine\SyncNow.ps1")
     if ($SkipPreview)    { $myArgs += "-SkipPreview" }
     if ($PredecidedFile) { $myArgs += @("-PredecidedFile", $PredecidedFile) }
+    # Hand off the already-captured backup so the restarted process doesn't
+    # re-backup the now-git-reset (cloud) file and lose the user's edits.
+    if ($localBackupPath -and (Test-Path $localBackupPath)) {
+        $myArgs += @("-HandoffBackup", $localBackupPath)
+    }
     Start-Process "powershell.exe" -ArgumentList $myArgs
     exit
 }
