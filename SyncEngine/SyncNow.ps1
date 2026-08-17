@@ -220,27 +220,18 @@ Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
 & $gitCmd -C $repoDir reset --hard origin/main *>$null
 
 # ---------------------------------------------------------------
-# SELF-UPDATE: Copy any changed scripts from the repo into the
-# install directory. If anything changed, relaunch and exit.
-# This is how all users stay up to date without reinstalling.
-# ---------------------------------------------------------------
-$scriptMap = @{
-    "$repoDir\SyncEngine\SyncNow.ps1"      = "$PSScriptRoot\SyncNow.ps1"
-    "$repoDir\SyncEngine\DedupManager.ps1" = "$PSScriptRoot\DedupManager.ps1"
-    "$repoDir\SyncEngine\DedupPreview.ps1" = "$PSScriptRoot\DedupPreview.ps1"
-    "$repoDir\CloudSync.ps1"               = "$repoDir\..\CloudSync.ps1"   # install root
-    "$repoDir\GoalTracker.ps1"             = "$repoDir\..\GoalTracker.ps1"
-    "$repoDir\Setup.ps1"                   = "$repoDir\..\Setup.ps1"
-}
 # Resolve install root (parent of SyncEngine)
 $installRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $scriptMap = @{
-    "$repoDir\SyncEngine\SyncNow.ps1"      = "$installRoot\SyncEngine\SyncNow.ps1"
-    "$repoDir\SyncEngine\DedupManager.ps1" = "$installRoot\SyncEngine\DedupManager.ps1"
-    "$repoDir\SyncEngine\DedupPreview.ps1" = "$installRoot\SyncEngine\DedupPreview.ps1"
-    "$repoDir\CloudSync.ps1"               = "$installRoot\CloudSync.ps1"
-    "$repoDir\GoalTracker.ps1"             = "$installRoot\GoalTracker.ps1"
-    "$repoDir\Setup.ps1"                   = "$installRoot\Setup.ps1"
+    "$repoDir\SyncEngine\SyncNow.ps1"       = "$installRoot\SyncEngine\SyncNow.ps1"
+    "$repoDir\SyncEngine\MergeSetFile.ps1"  = "$installRoot\SyncEngine\MergeSetFile.ps1"
+    "$repoDir\SyncEngine\FillCreators.ps1"  = "$installRoot\SyncEngine\FillCreators.ps1"
+    "$repoDir\SyncEngine\DedupManager.ps1"  = "$installRoot\SyncEngine\DedupManager.ps1"
+    "$repoDir\SyncEngine\DedupPreview.ps1"  = "$installRoot\SyncEngine\DedupPreview.ps1"
+    "$repoDir\CloudSync.ps1"                = "$installRoot\CloudSync.ps1"
+    "$repoDir\GoalTracker.ps1"              = "$installRoot\GoalTracker.ps1"
+    "$repoDir\Setup.ps1"                    = "$installRoot\Setup.ps1"
+    "$repoDir\MenuAddon.cs"                 = "$installRoot\MenuAddon.cs"
 }
 
 $anyUpdated = $false
