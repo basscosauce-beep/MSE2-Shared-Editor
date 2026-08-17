@@ -382,9 +382,12 @@ try {
         try {
             # ----------------------------------------------------------------
             # Auto-save MSE2 so unsaved cards appear in the diff.
-            # We send Ctrl+S and wait for the file timestamp to update.
-            # MSE2 stays open -- this is just a save, not a kill.
+            # Uses GetForegroundWindow() to verify MSE2 actually got focus
+            # before sending Ctrl+S. AppActivate() silently fails when Windows'
+            # foreground-stealing prevention kicks in right after this WPF
+            # window opened -- Ctrl+S would go to Cloud Sync, not MSE2.
             # ----------------------------------------------------------------
+            $saveWarning = $false   # shown as a banner in the diff if save couldn't be verified
             $mseProc = Get-Process "magicseteditor" -ErrorAction SilentlyContinue |
                        Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
             if ($mseProc) {
@@ -392,27 +395,36 @@ try {
                 $window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Render, [action]{})
                 Add-Type -AssemblyName Microsoft.VisualBasic
                 Add-Type -AssemblyName System.Windows.Forms
-                $preTs = $setFile.LastWriteTime
-                $focused = $false
-                try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id); $focused = $true } catch {}
-                if ($focused) {
-                    Start-Sleep -Milliseconds 250
-                    [System.Windows.Forms.SendKeys]::SendWait("^s")
-                    # Poll up to 4 seconds for the file to update
-                    for ($sw = 0; $sw -lt 14; $sw++) {
-                        Start-Sleep -Milliseconds 300
-                        $setFile.Refresh()
-                        if ($setFile.LastWriteTime -gt $preTs) { break }
-                    }
-                    # If still not saved, send one more Ctrl+S and wait 2s
-                    if ($setFile.LastWriteTime -le $preTs) {
+
+                # Load GetForegroundWindow so we can verify focus before Ctrl+S
+                $user32CS = $null
+                try {
+                    $user32CS = Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();' `
+                        -Name "Win32FG2" -Namespace "MSECSSync" -PassThru -ErrorAction SilentlyContinue
+                } catch {}
+
+                $preTs      = $setFile.LastWriteTime
+                $saveDone   = $false
+
+                for ($att = 1; $att -le 3 -and -not $saveDone; $att++) {
+                    try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id) } catch {}
+                    Start-Sleep -Milliseconds 600
+                    $fg = if ($user32CS) { $user32CS::GetForegroundWindow() } else { $mseProc.MainWindowHandle }
+                    if ($fg -eq $mseProc.MainWindowHandle) {
                         [System.Windows.Forms.SendKeys]::SendWait("^s")
-                        Start-Sleep -Milliseconds 2000
-                        $setFile.Refresh()
+                        for ($sw = 0; $sw -lt 14; $sw++) {
+                            Start-Sleep -Milliseconds 300
+                            $setFile.Refresh()
+                            if ($setFile.LastWriteTime -gt $preTs) { $saveDone = $true; break }
+                        }
                     }
-                    # Bring Cloud Sync back to the front
-                    try { $window.Activate() } catch {}
+                    if (-not $saveDone -and $att -lt 3) { Start-Sleep -Milliseconds 400 }
                 }
+
+                if (-not $saveDone -and $setFile.LastWriteTime -le $preTs) {
+                    $saveWarning = $true   # diff may be incomplete -- shown as banner below
+                }
+                try { $window.Activate() } catch {}
             }
 
             # Fetch latest from remote (read-only, no file changes)
@@ -619,6 +631,34 @@ try {
             } catch {
                 # Pending dedup check is non-fatal
                 [System.Diagnostics.Debug]::WriteLine("Dedup banner error: $($_.Exception.Message)")
+            }
+
+            # SAVE WARNING banner -- shown when the auto-save couldn't be verified.
+            # This is the most common reason the diff shows "Up to date" even when
+            # the user has unsaved edits in MSE2.
+            if ($saveWarning) {
+                $warnBorder = New-Object System.Windows.Controls.Border
+                $warnBorder.Background  = $conv.ConvertFromString("#2D0000")
+                $warnBorder.BorderBrush = $conv.ConvertFromString("#EF4444")
+                $warnBorder.BorderThickness = "1"
+                $warnBorder.CornerRadius = "6"
+                $warnBorder.Padding  = [System.Windows.Thickness]::new(14, 10, 14, 10)
+                $warnBorder.Margin   = [System.Windows.Thickness]::new(0, 0, 0, 12)
+                $warnSP  = New-Object System.Windows.Controls.StackPanel
+                $warnTB1 = New-Object System.Windows.Controls.TextBlock
+                $warnTB1.Text       = "[!] MSE2 could not be auto-saved"
+                $warnTB1.FontSize   = 13; $warnTB1.FontWeight = "Bold"
+                $warnTB1.Foreground = $conv.ConvertFromString("#FCA5A5")
+                $warnTB2 = New-Object System.Windows.Controls.TextBlock
+                $warnTB2.Text       = "The diff below may be missing your latest edits. Please press Ctrl+S in Magic Set Editor, then click Refresh."
+                $warnTB2.FontSize   = 11
+                $warnTB2.Foreground = $conv.ConvertFromString("#FCA5A5")
+                $warnTB2.TextWrapping = "Wrap"
+                $warnTB2.Margin     = [System.Windows.Thickness]::new(0, 4, 0, 0)
+                $warnSP.Children.Add($warnTB1) | Out-Null
+                $warnSP.Children.Add($warnTB2) | Out-Null
+                $warnBorder.Child = $warnSP
+                $cardList.Children.Add($warnBorder) | Out-Null
             }
 
             # Summary pills

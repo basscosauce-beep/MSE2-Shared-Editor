@@ -31,58 +31,70 @@ if ($mseProc) {
     Add-Type -AssemblyName Microsoft.VisualBasic
     Add-Type -AssemblyName System.Windows.Forms
 
-    # Record timestamp RIGHT before sending Ctrl+S
     $preTimestamp = $null
-    if ($setFile) { $preTimestamp = $setFile.LastWriteTime }
+    if ($setFile) { $setFile.Refresh(); $preTimestamp = $setFile.LastWriteTime }
 
-    # Bring MSE2 to foreground
-    $focused = $false
-    try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id); $focused = $true } catch {}
-    if (-not $focused) {
-        try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.MainWindowTitle); $focused = $true } catch {}
-    }
+    # Use GetForegroundWindow() to verify MSE2 actually got focus before sending Ctrl+S.
+    # AppActivate() returns $true even when Windows foreground-stealing prevention blocks it,
+    # so the old code was silently sending Ctrl+S to the Cloud Sync window instead of MSE2.
+    $user32 = $null
+    try {
+        $user32 = Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();' `
+            -Name "Win32FG" -Namespace "MSESync" -PassThru -ErrorAction SilentlyContinue
+    } catch {}
 
-    if ($focused) {
-        Start-Sleep -Milliseconds 300
-        [System.Windows.Forms.SendKeys]::SendWait("^s")
+    $saveVerified = $false
+    for ($attempt = 1; $attempt -le 3 -and -not $saveVerified; $attempt++) {
+        try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id) } catch {}
+        Start-Sleep -Milliseconds 600
 
-        # Poll every 300ms for up to 4s for the file timestamp to update
-        $saveVerified = $false
-        for ($wait = 0; $wait -lt 14; $wait++) {
-            Start-Sleep -Milliseconds 300
-            $setFile.Refresh()
-            if ($preTimestamp -and $setFile.LastWriteTime -gt $preTimestamp) {
-                $saveVerified = $true; Write-Host "Save verified." -ForegroundColor Green; break
-            }
-        }
-
-        # Not saved yet - one more Ctrl+S and another 3 seconds of polling
-        if (-not $saveVerified) {
+        # Verify focus really landed on MSE2 before sending Ctrl+S
+        $foreground = if ($user32) { $user32::GetForegroundWindow() } else { $mseProc.MainWindowHandle }
+        if ($foreground -eq $mseProc.MainWindowHandle) {
             [System.Windows.Forms.SendKeys]::SendWait("^s")
-            for ($wait = 0; $wait -lt 10; $wait++) {
+            for ($poll = 0; $poll -lt 14; $poll++) {
                 Start-Sleep -Milliseconds 300
                 $setFile.Refresh()
                 if ($preTimestamp -and $setFile.LastWriteTime -gt $preTimestamp) {
-                    $saveVerified = $true; Write-Host "Save verified (2nd attempt)." -ForegroundColor Green; break
+                    $saveVerified = $true; Write-Host "Save verified (attempt $attempt)." -ForegroundColor Green; break
                 }
             }
         }
+        if (-not $saveVerified -and $attempt -lt 3) { Start-Sleep -Milliseconds 400 }
+    }
 
-        if (-not $saveVerified) {
-            Write-Host "=========================================================" -ForegroundColor Yellow
-            Write-Host " WARNING: Could not verify MSE2 saved to disk."           -ForegroundColor Yellow
-            Write-Host " Press Ctrl+C to cancel, save (Ctrl+S), then sync again." -ForegroundColor Yellow
-            Write-Host "=========================================================" -ForegroundColor Yellow
-            Start-Sleep -Seconds 6
+    if (-not $saveVerified) {
+        # The automated save couldn't be confirmed. Two possible reasons:
+        #   A) CloudSync already saved (file is up-to-date) -- safe to continue.
+        #   B) MSE2 focus was blocked -- unsaved edits would be LOST if we continue.
+        # We can't distinguish A from B silently, so we show a blocking dialog.
+        Add-Type -AssemblyName System.Windows.Forms
+        $msg  = "MSE2 could not be auto-saved.`n`n"
+        $msg += "This usually happens because the Cloud Sync preview window`n"
+        $msg += "had focus when Ctrl+S was sent.`n`n"
+        $msg += "ACTION REQUIRED:`n"
+        $msg += "  1. Click OK`n"
+        $msg += "  2. Click on Magic Set Editor in the taskbar`n"
+        $msg += "  3. Press Ctrl+S`n"
+        $msg += "  4. Come back here -- sync will continue automatically`n`n"
+        $msg += "If you already saved before launching Cloud Sync, click OK to continue."
+        $res = [System.Windows.Forms.MessageBox]::Show(
+            $msg, "Save Your Cards First",
+            [System.Windows.Forms.MessageBoxButtons]::OKCancel,
+            [System.Windows.Forms.MessageBoxIcon]::Warning)
+        if ($res -eq [System.Windows.Forms.DialogResult]::Cancel) {
+            Write-Host "Sync cancelled by user." -ForegroundColor Yellow; exit 0
         }
-    } else {
-        Write-Host "=========================================================" -ForegroundColor Yellow
-        Write-Host " WARNING: Could not bring MSE2 to foreground to save."    -ForegroundColor Yellow
-        Write-Host " Press Ctrl+C to cancel, save (Ctrl+S), then sync again." -ForegroundColor Yellow
-        Write-Host "=========================================================" -ForegroundColor Yellow
-        Start-Sleep -Seconds 6
+        Start-Sleep -Milliseconds 1500
+        if ($setFile) { $setFile.Refresh() }
+        if ($preTimestamp -and $setFile.LastWriteTime -gt $preTimestamp) {
+            Write-Host "Save confirmed after manual save." -ForegroundColor Green
+        } else {
+            Write-Host "Continuing (file may have already been up-to-date)." -ForegroundColor DarkCyan
+        }
     }
 }
+
 
 # ---------------------------------------------------------------------------
 # STEP 1 (pre-flight): If we're a self-update restart, reuse the backup the
