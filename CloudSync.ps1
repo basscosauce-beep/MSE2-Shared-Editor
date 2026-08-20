@@ -128,6 +128,33 @@ try {
           <StackPanel Name="HistoryList"/>
         </ScrollViewer>
       </TabItem>
+      <TabItem Header="Import Set" Name="TabImport">
+        <Grid Margin="16,10,16,10">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Source .mse-set file:" VerticalAlignment="Center" Margin="0,0,10,0" FontSize="12"/>
+            <TextBox Name="ImportPathBox" Width="310" IsReadOnly="True"
+                     Background="#0F1629" Foreground="#9CA3AF" Padding="6,4"
+                     VerticalAlignment="Center" FontSize="11" BorderBrush="#374151"/>
+            <Button Name="BtnBrowse" Content="Browse..." Margin="8,0,0,0"
+                    Background="#1E3A5F" Foreground="White" Padding="12,5" FontSize="12"/>
+          </StackPanel>
+          <TextBlock Name="ImportStatusText" Grid.Row="1" Foreground="#6B7280"
+                     FontSize="11" Margin="0,0,0,8" TextWrapping="Wrap"/>
+          <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <StackPanel Name="ImportList"/>
+          </ScrollViewer>
+          <Button Name="BtnImport" Grid.Row="3"
+                  Content="Import Cards into Shared Set" Margin="0,10,0,0"
+                  Background="#1D4ED8" Foreground="#666" FontWeight="Bold" FontSize="13"
+                  Padding="18,9" HorizontalAlignment="Right" IsEnabled="False"/>
+        </Grid>
+      </TabItem>
     </TabControl>
 
     <!-- Footer -->
@@ -163,6 +190,13 @@ try {
     $btnRefresh     = $window.FindName("BtnRefresh")
     $summaryBar     = $window.FindName("SummaryBar")
 
+    # Import tab controls
+    $importPathBox    = $window.FindName("ImportPathBox")
+    $btnBrowse        = $window.FindName("BtnBrowse")
+    $importStatusText = $window.FindName("ImportStatusText")
+    $importList       = $window.FindName("ImportList")
+    $btnImport        = $window.FindName("BtnImport")
+
     $window.Title    = "Cloud Sync"
     $setNameText.Text = $setFile.BaseName
 
@@ -173,6 +207,241 @@ try {
     $mergedMap  = $null
     $cloudMap   = $null
     $hasChanges = $false
+
+    # Import tab state
+    $script:importCards = $null  # array of @{Block=<text>; Name=<string>; Status="ADD"|"OVERRIDE"}
+
+    # =========================================================================
+    # IMPORT TAB LOGIC
+    # =========================================================================
+    # Helper: get the 'name:' field from a card block
+    function Get-ImportCardName([string]$block) {
+        if ($block -match "(?m)^\s*name:\s*(.+)") { return $matches[1].Trim() }
+        return ""
+    }
+
+    # Build a name->block map from local shared set text
+    function Get-NameMap([string]$content) {
+        $map = [System.Collections.Specialized.OrderedDictionary]::new()
+        $content -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
+            $block = ($_ -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
+            $name  = Get-ImportCardName $block
+            if ($name -and -not $map.Contains($name.ToLower())) {
+                $map[$name.ToLower()] = $block
+            }
+        }
+        return $map
+    }
+
+    # Stamp time_modified = NOW on a card block so it beats cloud in merge
+    function Set-ImportTimestamp([string]$block) {
+        $now = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        if ($block -match "(?m)^\s*time_modified:\s*([^\r\n]+)") {
+            return $block -replace "(?m)(^\s*time_modified:\s*)([^\r\n]+)", ('${1}' + $now)
+        }
+        # No time_modified field -- insert after time_created
+        if ($block -match "(?m)(^\s*time_created:\s*[^\r\n]+)") {
+            return $block -replace "(?m)(^\s*time_created:\s*[^\r\n]+)", ('$1' + "`n`ttime_modified: $now")
+        }
+        return $block
+    }
+
+    # Run the import preview after a file is chosen
+    function Invoke-ImportPreview([string]$sourcePath) {
+        $importList.Children.Clear()
+        $btnImport.IsEnabled    = $false
+        $btnImport.Foreground   = "#666"
+        $importStatusText.Text  = "Reading file..."
+        $window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Render, [action]{})
+
+        try {
+            # Read source set
+            $srcContent = Read-ZipSet $sourcePath
+            if (-not $srcContent) { $importStatusText.Text = "Could not read the selected file."; return }
+
+            # Read local shared set
+            $localContent = Read-ZipSet $setFile.FullName
+            if (-not $localContent) { $importStatusText.Text = "Could not read the shared set file."; return }
+
+            $localNameMap = Get-NameMap $localContent
+
+            # Parse source cards
+            $srcCards = @(
+                $srcContent -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
+                    $block = ($_ -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
+                    $name  = Get-ImportCardName $block
+                    if ($name) {
+                        $status = if ($localNameMap.Contains($name.ToLower())) { "OVERRIDE" } else { "ADD" }
+                        [pscustomobject]@{ Block=$block; Name=$name; Status=$status }
+                    }
+                }
+            )
+
+            if ($srcCards.Count -eq 0) { $importStatusText.Text = "No valid cards found in the selected file."; return }
+
+            $script:importCards = $srcCards
+            $addCount      = ($srcCards | Where-Object { $_.Status -eq "ADD" }).Count
+            $overrideCount = ($srcCards | Where-Object { $_.Status -eq "OVERRIDE" }).Count
+            $importStatusText.Text = "$($srcCards.Count) cards found: +$addCount new, ~$overrideCount replacing existing (matched by name)"
+
+            # Build preview rows
+            foreach ($card in $srcCards) {
+                $row = New-Object System.Windows.Controls.Border
+                $row.Margin  = [System.Windows.Thickness]::new(0,2,0,2)
+                $row.Padding = [System.Windows.Thickness]::new(10,6,10,6)
+                $row.CornerRadius = "4"
+                if ($card.Status -eq "ADD") {
+                    $row.Background  = $conv.ConvertFromString("#0F2A1A")
+                    $row.BorderBrush = $conv.ConvertFromString("#15803D")
+                } else {
+                    $row.Background  = $conv.ConvertFromString("#131A30")
+                    $row.BorderBrush = $conv.ConvertFromString("#1D4ED8")
+                }
+                $row.BorderThickness = "1"
+
+                $sp = New-Object System.Windows.Controls.StackPanel
+                $sp.Orientation = "Horizontal"
+
+                $badge = New-Object System.Windows.Controls.Border
+                $badge.CornerRadius = "3"
+                $badge.Padding = [System.Windows.Thickness]::new(6,2,6,2)
+                $badge.Margin  = [System.Windows.Thickness]::new(0,0,10,0)
+                $badge.VerticalAlignment = "Center"
+                if ($card.Status -eq "ADD") {
+                    $badge.Background = $conv.ConvertFromString("#15803D")
+                    $btb = New-Object System.Windows.Controls.TextBlock
+                    $btb.Text = "+ ADD"; $btb.FontSize = 10; $btb.FontWeight = "Bold"; $btb.Foreground = "White"
+                } else {
+                    $badge.Background = $conv.ConvertFromString("#1D4ED8")
+                    $btb = New-Object System.Windows.Controls.TextBlock
+                    $btb.Text = "~ OVERRIDE"; $btb.FontSize = 10; $btb.FontWeight = "Bold"; $btb.Foreground = "White"
+                }
+                $badge.Child = $btb
+
+                $nameTB = New-Object System.Windows.Controls.TextBlock
+                $nameTB.Text = $card.Name; $nameTB.FontSize = 12; $nameTB.Foreground = "White"
+                $nameTB.VerticalAlignment = "Center"
+
+                $sp.Children.Add($badge)  | Out-Null
+                $sp.Children.Add($nameTB) | Out-Null
+                $row.Child = $sp
+                $importList.Children.Add($row) | Out-Null
+            }
+
+            $btnImport.IsEnabled  = $true
+            $btnImport.Foreground = "White"
+
+        } catch {
+            $importStatusText.Text = "Error: $($_.Exception.Message)"
+        }
+    }
+
+    # Browse button
+    $btnBrowse.add_Click({
+        Add-Type -AssemblyName System.Windows.Forms
+        $dlg = New-Object System.Windows.Forms.OpenFileDialog
+        $dlg.Title  = "Select an MSE2 set file to import from"
+        $dlg.Filter = "MSE Set files (*.mse-set)|*.mse-set|All files (*.*)|*.*"
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $importPathBox.Text = $dlg.FileName
+            Invoke-ImportPreview $dlg.FileName
+        }
+    })
+
+    # Import button -- merges source cards into the local shared set and writes the result
+    $btnImport.add_Click({
+        if (-not $script:importCards -or $script:importCards.Count -eq 0) { return }
+        $btnImport.IsEnabled = $false
+        $importStatusText.Text = "Importing..."
+        $window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Render, [action]{})
+
+        try {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            Add-Type -AssemblyName System.IO.Compression
+
+            # Read current shared set
+            $localContent = Read-ZipSet $setFile.FullName
+            if (-not $localContent) { throw "Could not read the shared set file." }
+
+            # Build an ordered name->block map of the local set (preserves card order)
+            $orderedMap = [System.Collections.Specialized.OrderedDictionary]::new()
+            $localContent -split "(?m)^(?=card:)" | Where-Object { $_ -match "^card:" } | ForEach-Object {
+                $block = ($_ -split "(?m)^(?=keyword:|version_control:|apprentice_code:)")[0]
+                $name  = Get-ImportCardName $block
+                if ($name -and -not $orderedMap.Contains($name.ToLower())) {
+                    $orderedMap[$name.ToLower()] = $block
+                } elseif ($name) {
+                    # Duplicate name -- keep it with a suffix key so it's not lost
+                    $orderedMap["$($name.ToLower())__dup_$($orderedMap.Count)"] = $block
+                }
+            }
+
+            # Apply imports -- override same-name, add new ones
+            $addCount = 0; $overrideCount = 0
+            foreach ($card in $script:importCards) {
+                $key = $card.Name.ToLower()
+                $stamped = Set-ImportTimestamp $card.Block
+                if ($orderedMap.Contains($key)) {
+                    $orderedMap[$key] = $stamped
+                    $overrideCount++
+                } else {
+                    $orderedMap[$key] = $stamped
+                    $addCount++
+                }
+            }
+
+            # Rebuild set text: header + all cards + original trailing section (keywords etc.)
+            $headerIdx = $localContent.IndexOf("`ncard:")
+            $header    = if ($headerIdx -ge 0) { $localContent.Substring(0, $headerIdx + 1) } else { "" }
+
+            $lastCardIdx = $localContent.LastIndexOf("`ncard:")
+            $trail = ""
+            if ($lastCardIdx -ge 0) {
+                $after = $localContent.Substring($lastCardIdx)
+                if ($after -match "(?s)`r?`n(keyword:|version_control:|apprentice_code:)") {
+                    $ts = $after.IndexOf("`r`n" + $matches[1])
+                    if ($ts -lt 0) { $ts = $after.IndexOf("`n" + $matches[1]) }
+                    if ($ts -ge 0) { $trail = "`r`n" + $after.Substring($ts).TrimStart("`r","`n") }
+                }
+            }
+
+            $newContent = $header
+            foreach ($key in $orderedMap.Keys) { $newContent += $orderedMap[$key].TrimEnd() + "`r`n" }
+            $newContent += $trail
+
+            # Write back into the zip
+            $tmpZip = [System.IO.Path]::GetTempFileName() + ".mse-set"
+            $srcZip = [System.IO.Compression.ZipFile]::OpenRead($setFile.FullName)
+            $dstZip = [System.IO.Compression.ZipFile]::Open($tmpZip, [System.IO.Compression.ZipArchiveMode]::Create)
+
+            $se = $dstZip.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
+            $sw = New-Object System.IO.StreamWriter($se.Open(), [System.Text.Encoding]::UTF8)
+            $sw.Write($newContent); $sw.Flush(); $sw.Dispose()
+
+            foreach ($img in ($srcZip.Entries | Where-Object { $_.Name -ne "set" })) {
+                $de = $dstZip.CreateEntry($img.FullName, [System.IO.Compression.CompressionLevel]::Optimal)
+                $s2 = $img.Open(); $d2 = $de.Open()
+                $s2.CopyTo($d2); $s2.Dispose(); $d2.Dispose()
+            }
+            $srcZip.Dispose(); $dstZip.Dispose()
+            Copy-Item $tmpZip $setFile.FullName -Force
+            Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+
+            $importStatusText.Text = "Done! +$addCount added, ~$overrideCount overridden. Switch to the Changes tab and sync to upload."
+            $importStatusText.Foreground = $conv.ConvertFromString("#4ADE80")
+            $btnImport.Content  = "Import Complete"
+            $btnImport.Background = $conv.ConvertFromString("#14532D")
+
+            # Invalidate the Changes tab so Refresh shows the new state
+            $script:importCards = $null
+
+        } catch {
+            $importStatusText.Text = "Import failed: $($_.Exception.Message)"
+            $importStatusText.Foreground = $conv.ConvertFromString("#F87171")
+            $btnImport.IsEnabled = $true
+        }
+    })
+
 
     # =========================================================================
     # Helpers
