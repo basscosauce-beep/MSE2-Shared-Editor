@@ -111,6 +111,8 @@ objShell.Run """" & strGit & """ -C """ & strDir & """ checkout origin/main -- "
     "Graveyard.vbs " & _
     "Settings.vbs " & _
     "RecoverCards.vbs " & _
+    "ImportSet.ps1 " & _
+    "ImportSet.vbs " & _
     "MenuAddon.cs " & _
     "MSE2/data/magic.mse-game/custom_addons " & _
     "MSE2/data/magic.mse-game/shared_tools_stats", _
@@ -176,7 +178,8 @@ End If
 
 ' ---- Start Menu Addon (adds Account Settings and Goals to MSE2 menu bar) ----
 If objFSO.FileExists(strDir & "\MenuAddon.exe") Then
-    objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs"" """ & strDir & "\GoalTracker.vbs"" """ & strDir & "\CloudSync.vbs"" """ & strDir & "\Graveyard.vbs""", 0, False
+    objShell.Run """" & strDir & "\MenuAddon.exe"" """ & strDir & "\Settings.vbs"" """ & strDir & "\GoalTracker.vbs"" """ & strDir & "\CloudSync.vbs"" """ & strDir & "\Graveyard.vbs"" """ & strDir & "\ImportSet.vbs""", 0, False
+
 End If
 
 ' ---- Launch MSE2 (open set directly if path was passed as argument) ----

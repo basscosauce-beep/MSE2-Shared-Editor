@@ -1,4 +1,4 @@
-// MSE2 Menu Addon - Adds "Account Settings" and "Goals" to MSE2 menu bar at runtime
+// MSE2 Menu Addon - Adds toolbar buttons to MSE2 menu bar at runtime
 // Handles MSE2's window handle changing when sets are opened/closed
 using System;
 using System.Diagnostics;
@@ -15,38 +15,40 @@ class MSEMenuAddon {
     const uint GOALS_ID      = 9877;
     const uint CLOUDSYNC_ID  = 9878;
     const uint GRAVEYARD_ID  = 9879;
+    const uint IMPORT_ID     = 9880;
 
     delegate void WinEventProc(IntPtr hook, uint eventType, IntPtr hwnd,
                                int idObject, int idChild, uint thread, uint time);
 
     [DllImport("user32.dll")] static extern IntPtr GetMenu(IntPtr hWnd);
     [DllImport("user32.dll")] static extern int    GetMenuItemCount(IntPtr hMenu);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern bool   AppendMenu(IntPtr hMenu, uint uFlags, uint uID, string text);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern bool AppendMenu(IntPtr hMenu, uint uFlags, uint uID, string text);
     [DllImport("user32.dll")] static extern bool   DrawMenuBar(IntPtr hWnd);
     [DllImport("user32.dll")] static extern uint   GetMenuItemID(IntPtr hMenu, int nPos);
     [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint evMin, uint evMax, IntPtr hMod,
                                WinEventProc proc, uint pid, uint tid, uint flags);
     [DllImport("user32.dll")] static extern bool   UnhookWinEvent(IntPtr hook);
 
-    static string settingsScriptPath   = "";
-    static string goalsScriptPath      = "";
-    static string cloudSyncScriptPath  = "";
-    static string graveyardScriptPath  = "";
+    static string settingsScriptPath  = "";
+    static string goalsScriptPath     = "";
+    static string cloudSyncScriptPath = "";
+    static string graveyardScriptPath = "";
+    static string importScriptPath    = "";
     static IntPtr hookHandle = IntPtr.Zero;
-    static WinEventProc del; // prevent GC
+    static WinEventProc del;
 
     static void Main(string[] args) {
-        if (args.Length > 0) settingsScriptPath   = args[0];
-        if (args.Length > 1) goalsScriptPath       = args[1];
-        if (args.Length > 2) cloudSyncScriptPath   = args[2];
-        if (args.Length > 3) graveyardScriptPath   = args[3];
+        if (args.Length > 0) settingsScriptPath  = args[0];
+        if (args.Length > 1) goalsScriptPath     = args[1];
+        if (args.Length > 2) cloudSyncScriptPath = args[2];
+        if (args.Length > 3) graveyardScriptPath = args[3];
+        if (args.Length > 4) importScriptPath    = args[4];
 
-        // Install WinEvent hook immediately (catches clicks across all window handles)
         del = OnWinEvent;
         hookHandle = SetWinEventHook(EVENT_OBJECT_INVOKED, EVENT_OBJECT_INVOKED,
                                      IntPtr.Zero, del, 0, 0, WINEVENT_OUTOFCONTEXT);
 
-        // Monitor MSE2 in background thread - re-inject menu whenever handle changes
         IntPtr lastInjectedHwnd = IntPtr.Zero;
         var monitor = new Thread(() => {
             while (true) {
@@ -70,53 +72,37 @@ class MSEMenuAddon {
     static void InjectMenu(IntPtr hwnd) {
         var hMenu = GetMenu(hwnd);
         if (hMenu == IntPtr.Zero) return;
-
-        // Check if already injected (don't double-add)
         int count = GetMenuItemCount(hMenu);
         for (int i = 0; i < count; i++) {
             if (GetMenuItemID(hMenu, i) == SETTINGS_ID) return;
         }
-
-        AppendMenu(hMenu, MF_SEPARATOR, 0, null);
-        AppendMenu(hMenu, MF_STRING, 9999,          "v4.0");
-        AppendMenu(hMenu, MF_STRING, CLOUDSYNC_ID,  "\u2601 Cloud Sync");
-        AppendMenu(hMenu, MF_STRING, GOALS_ID,      "\uD83D\uDCCA Goals");
-        AppendMenu(hMenu, MF_STRING, GRAVEYARD_ID,  "\u2620 Graveyard");
-        AppendMenu(hMenu, MF_STRING, SETTINGS_ID,   "\u2699 Account");
+        AppendMenu(hMenu, MF_SEPARATOR, 0,           null);
+        AppendMenu(hMenu, MF_STRING,    9999,         "v4.0");
+        AppendMenu(hMenu, MF_STRING,    CLOUDSYNC_ID, "\u2601 Cloud Sync");
+        AppendMenu(hMenu, MF_STRING,    GOALS_ID,     "\uD83D\uDCCA Goals");
+        AppendMenu(hMenu, MF_STRING,    GRAVEYARD_ID, "\u2620 Graveyard");
+        AppendMenu(hMenu, MF_STRING,    IMPORT_ID,    "\uD83D\uDCE5 Import");
+        AppendMenu(hMenu, MF_STRING,    SETTINGS_ID,  "\u2699 Account");
         DrawMenuBar(hwnd);
+    }
+
+    static void Launch(string scriptPath) {
+        if (scriptPath == "") return;
+        var t = new Thread(() => {
+            Thread.Sleep(300);
+            Process.Start("wscript.exe", "\"" + scriptPath + "\"");
+        });
+        t.IsBackground = true;
+        t.Start();
     }
 
     static void OnWinEvent(IntPtr hook, uint eventType, IntPtr hwnd,
                            int idObject, int idChild, uint thread, uint time) {
-        if ((uint)idChild == SETTINGS_ID && settingsScriptPath != "") {
-            var t = new Thread(() => {
-                Thread.Sleep(300);
-                Process.Start("wscript.exe", "\"" + settingsScriptPath + "\"");
-            });
-            t.IsBackground = true;
-            t.Start();
-        } else if ((uint)idChild == GOALS_ID && goalsScriptPath != "") {
-            var t = new Thread(() => {
-                Thread.Sleep(300);
-                Process.Start("wscript.exe", "\"" + goalsScriptPath + "\"");
-            });
-            t.IsBackground = true;
-            t.Start();
-        } else if ((uint)idChild == CLOUDSYNC_ID && cloudSyncScriptPath != "") {
-            var t = new Thread(() => {
-                Thread.Sleep(300);
-                Process.Start("wscript.exe", "\"" + cloudSyncScriptPath + "\"");
-            });
-            t.IsBackground = true;
-            t.Start();
-        } else if ((uint)idChild == GRAVEYARD_ID && graveyardScriptPath != "") {
-            var t = new Thread(() => {
-                Thread.Sleep(300);
-                Process.Start("wscript.exe", "\"" + graveyardScriptPath + "\"");
-            });
-            t.IsBackground = true;
-            t.Start();
-        }
+        uint id = (uint)idChild;
+        if      (id == SETTINGS_ID)  Launch(settingsScriptPath);
+        else if (id == GOALS_ID)     Launch(goalsScriptPath);
+        else if (id == CLOUDSYNC_ID) Launch(cloudSyncScriptPath);
+        else if (id == GRAVEYARD_ID) Launch(graveyardScriptPath);
+        else if (id == IMPORT_ID)    Launch(importScriptPath);
     }
 }
-
