@@ -4,7 +4,7 @@ param(
     [string]$HandoffBackup     # Backup path handed from a self-update restart (skip re-backup)
 )
 
-$Host.UI.RawUI.WindowTitle = "Magic Set Editor - Sync v4.0"
+$Host.UI.RawUI.WindowTitle = "Magic Set Editor - Sync v4.1"
 
 # ---------------------------------------------------------------------------
 # Auto-save MSE2 BEFORE killing it so unsaved cards are flushed to disk.

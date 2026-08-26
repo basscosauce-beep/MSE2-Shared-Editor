@@ -203,7 +203,7 @@ try {
     $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Set Goal Tracker v4.0 - $($setName)" Height="880" Width="550" Background="#1E1E1E" Foreground="White"
+        Title="Set Goal Tracker v4.1 - $($setName)" Height="880" Width="550" Background="#1E1E1E" Foreground="White"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
     <Window.Resources>
         <Style TargetType="TextBlock">
