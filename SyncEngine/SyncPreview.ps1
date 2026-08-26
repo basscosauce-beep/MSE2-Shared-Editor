@@ -403,7 +403,9 @@ $btnSync.add_Click({
             $newText = $headerMatch
             foreach ($tc in $commitMap.Keys) {
                 $block = $commitMap[$tc]
-                if (-not $block.StartsWith("card:")) { $block = "card:`r`n" + $block }
+                # NOTE: blocks from Parse-CardMap already start with "card:" (the lookahead
+                # split (?m)^(?=card:) is zero-width so card: stays at the block start).
+                # Do NOT prepend card: again -- that creates "card:\ncard:\n..." corruption.
                 $newText += $block.TrimEnd() + "`r`n"
             }
             $newText += $trailingMatch

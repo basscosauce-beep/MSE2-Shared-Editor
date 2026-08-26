@@ -463,7 +463,19 @@ $rawCardText   = $mergedCards -join ""
 $cleanParts    = $rawCardText -split "(?m)^(?=keyword:|version_control:|apprentice_code:)"
 $cleanCardText = ($cleanParts | Where-Object { $_ -ne "" -and $_ -notmatch "^(keyword|version_control|apprentice_code):" }) -join ""
 
-$mergedContent = $cloudHeaderNoKw + $mergedKwText + $cleanCardText
+# Bug 3 fix: preserve the version_control: and apprentice_code: trailing blocks
+# that MSE2 appends at the end of the set file. These are distinct from keyword:
+# blocks and from card content -- they're stripped by cleanCardText above but were
+# never re-appended, so every sync silently dropped them.
+# We take them from the cloud version (authoritative source after git reset --hard).
+$trailingMetaBlocks = ""
+$cloudTrailParts = $cloudContent -split "(?m)^(?=version_control:|apprentice_code:)"
+if ($cloudTrailParts.Count -gt 1) {
+    # Collect all version_control: and apprentice_code: top-level blocks
+    $trailingMetaBlocks = ($cloudTrailParts | Where-Object { $_ -match "^(version_control|apprentice_code):" }) -join ""
+}
+
+$mergedContent = $cloudHeaderNoKw + $mergedKwText + $cleanCardText + $trailingMetaBlocks
 
 # ===========================================================================
 # Temp-file swap: write merged zip without touching the live file
@@ -578,7 +590,7 @@ if ($cardTextRenames.Count -gt 0) {
     $rawCardText   = $mergedCards -join ""
     $cleanParts    = $rawCardText -split "(?m)^(?=keyword:|version_control:|apprentice_code:)"
     $cleanCardText = ($cleanParts | Where-Object { $_ -ne "" -and $_ -notmatch "^(keyword|version_control|apprentice_code):" }) -join ""
-    $mergedContent = $cloudHeaderNoKw + $mergedKwText + $cleanCardText
+    $mergedContent = $cloudHeaderNoKw + $mergedKwText + $cleanCardText + $trailingMetaBlocks
 }
 
 # Build the renamed-images lookup: localImg -> newName (for writing into dst zip)

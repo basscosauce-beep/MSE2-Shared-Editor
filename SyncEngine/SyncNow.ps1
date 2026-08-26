@@ -246,6 +246,13 @@ Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
 & $gitCmd -C $repoDir @credBypass fetch origin *>$null
 & $gitCmd -C $repoDir reset --hard origin/main *>$null
 
+# Bug 2 fix: resolve $cloudSetFile unconditionally here (after reset --hard brings
+# the latest cloud set into the working tree) so every subsequent step has it,
+# regardless of handoff mode or whether the local backup succeeded.
+$cloudSetFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
+    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" } |
+    Select-Object -First 1
+
 # ---------------------------------------------------------------
 # Resolve install root (parent of SyncEngine)
 $installRoot = (Resolve-Path "$PSScriptRoot\..").Path
@@ -378,6 +385,21 @@ if ($localBackupPath -and (Test-Path $localBackupPath)) {
         . "$PSScriptRoot\MergeSetFile.ps1" -LocalBackup $localBackupPath -CloudFile $cloudSetFile.FullName -UserName $userName
     }
     Remove-Item $localBackupPath -Force -ErrorAction SilentlyContinue
+
+    # Bug 4 fix: snapshot the merged result NOW, before it can be overwritten by
+    # a git reset --hard in the push-retry loop. If the push is rejected and we
+    # have to reset to cloud, we restore from this snapshot instead of
+    # accidentally committing the bare cloud state as if it were our merge.
+    $script:mergedResultSnapshot = $null
+    if ($cloudSetFile -and (Test-Path $cloudSetFile.FullName)) {
+        try {
+            $script:mergedResultSnapshot = [System.IO.Path]::GetTempFileName() + ".mse-set"
+            Copy-Item $cloudSetFile.FullName $script:mergedResultSnapshot -Force
+        } catch {
+            Write-Host "Warning: could not snapshot merge result ($($_.Exception.Message)). Push-retry safety disabled." -ForegroundColor Yellow
+            $script:mergedResultSnapshot = $null
+        }
+    }
 }
 
 # -----------------------------------------------------------------------
@@ -729,19 +751,30 @@ for ($pushAttempt = 1; $pushAttempt -le 3; $pushAttempt++) {
     & $gitCmd -C $repoDir @credBypass fetch origin *>$null
     & $gitCmd -C $repoDir rebase origin/main *>$null
     if ($LASTEXITCODE -ne 0) {
-        # Rebase conflict on binary - abort, take cloud as base, re-commit our merge
+        # Rebase conflict on binary - abort, take cloud as base, re-apply our merge on top.
         & $gitCmd -C $repoDir rebase --abort *>$null
-        # Don't re-run MergeSetFile (backup was deleted). Instead:
-        # 1. Reset to cloud, 2. apply our already-merged file on top, 3. re-commit
-        $currentMerged = $cloudSetFile.FullName
+
+        # Bug 4 fix: after reset --hard, $cloudSetFile.FullName is overwritten with the
+        # raw cloud state. We MUST restore our merged result from the snapshot we took
+        # after MergeSetFile ran -- otherwise we commit cloud-as-cloud and lose all new cards.
         & $gitCmd -C $repoDir reset --hard origin/main *>$null
-        # Re-read the cloud content and re-apply our merged file if it still exists
-        if (Test-Path $currentMerged) {
-            & $gitCmd -C $repoDir add "Shared-Set/" *>$null
-            & $gitCmd -C $repoDir commit -m "Auto-sync card updates (conflict resolved)" *>$null
+
+        if ($script:mergedResultSnapshot -and (Test-Path $script:mergedResultSnapshot)) {
+            Write-Host "Restoring merged cards over new cloud state..." -ForegroundColor Cyan
+            Copy-Item $script:mergedResultSnapshot $cloudSetFile.FullName -Force
+        } else {
+            Write-Host "Warning: no merge snapshot available -- re-committing current file as-is." -ForegroundColor Yellow
         }
+
+        & $gitCmd -C $repoDir add "Shared-Set/" *>$null
+        & $gitCmd -C $repoDir commit -m "Auto-sync card updates (conflict resolved)" *>$null
     }
     Start-Sleep -Seconds 1
+}
+
+# Clean up the merge snapshot temp file
+if ($script:mergedResultSnapshot -and (Test-Path $script:mergedResultSnapshot)) {
+    Remove-Item $script:mergedResultSnapshot -Force -ErrorAction SilentlyContinue
 }
 
 if ($pushOk) {
