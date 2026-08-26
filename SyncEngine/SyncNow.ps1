@@ -385,21 +385,6 @@ if ($localBackupPath -and (Test-Path $localBackupPath)) {
         . "$PSScriptRoot\MergeSetFile.ps1" -LocalBackup $localBackupPath -CloudFile $cloudSetFile.FullName -UserName $userName
     }
     Remove-Item $localBackupPath -Force -ErrorAction SilentlyContinue
-
-    # Bug 4 fix: snapshot the merged result NOW, before it can be overwritten by
-    # a git reset --hard in the push-retry loop. If the push is rejected and we
-    # have to reset to cloud, we restore from this snapshot instead of
-    # accidentally committing the bare cloud state as if it were our merge.
-    $script:mergedResultSnapshot = $null
-    if ($cloudSetFile -and (Test-Path $cloudSetFile.FullName)) {
-        try {
-            $script:mergedResultSnapshot = [System.IO.Path]::GetTempFileName() + ".mse-set"
-            Copy-Item $cloudSetFile.FullName $script:mergedResultSnapshot -Force
-        } catch {
-            Write-Host "Warning: could not snapshot merge result ($($_.Exception.Message)). Push-retry safety disabled." -ForegroundColor Yellow
-            $script:mergedResultSnapshot = $null
-        }
-    }
 }
 
 # -----------------------------------------------------------------------
@@ -685,6 +670,19 @@ if ($cloudSetFile) {
 Write-Host "Uploading your cards to the cloud..." -ForegroundColor Yellow
 & $gitCmd -C $repoDir add "Shared-Set/" *>$null
 
+# Snapshot the FINAL set file state (after merge + decisions + dedup) for push-retry.
+# If push is rejected and we must reset --hard, we restore from here.
+$script:mergedResultSnapshot = $null
+if ($cloudSetFile -and (Test-Path $cloudSetFile.FullName)) {
+    try {
+        $script:mergedResultSnapshot = [System.IO.Path]::GetTempFileName() + ".mse-set"
+        Copy-Item $cloudSetFile.FullName $script:mergedResultSnapshot -Force
+    } catch {
+        Write-Host "Warning: could not snapshot final state. Push-retry safety disabled." -ForegroundColor Yellow
+        $script:mergedResultSnapshot = $null
+    }
+}
+
 # Build an informative commit message so the History tab shows what actually changed
 $commitMsg = "$userName synced"
 try {
@@ -747,7 +745,7 @@ try {
     $commitMsg = "$userName synced"
 }
 
-& $gitCmd -C $repoDir commit -m $commitMsg *>$null
+& $gitCmd -C $repoDir commit @("-m", $commitMsg) *>$null
 
 $pushOk = $false
 for ($pushAttempt = 1; $pushAttempt -le 3; $pushAttempt++) {
