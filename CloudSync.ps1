@@ -662,22 +662,46 @@ try {
             if ($mseProc) {
                 $lastCheckedText.Text = "Saving..."
                 $window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Render, [action]{})
-                Add-Type -AssemblyName Microsoft.VisualBasic
                 Add-Type -AssemblyName System.Windows.Forms
 
-                # Load GetForegroundWindow so we can verify focus before Ctrl+S
+                # Load SetForegroundWindow + GetForegroundWindow via P/Invoke.
+                # AppActivate() silently fails when Windows' focus-stealing prevention is active
+                # (common when a WPF window just opened). Direct SetForegroundWindow() works
+                # because CloudSync IS the current foreground process and is therefore allowed
+                # to re-assign foreground to any window -- no stealing involved.
                 $user32CS = $null
                 try {
-                    $user32CS = Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();' `
-                        -Name "Win32FG2" -Namespace "MSECSSync" -PassThru -ErrorAction SilentlyContinue
+                    $user32CS = Add-Type -MemberDefinition @'
+[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+'@ -Name "Win32FG3" -Namespace "MSECSSync3" -PassThru -ErrorAction SilentlyContinue
                 } catch {}
 
-                $preTs      = $setFile.LastWriteTime
-                $saveDone   = $false
+                $preTs    = $setFile.LastWriteTime
+                $saveDone = $false
+                # Get the WPF window's Win32 handle for ShowWindow calls
+                $csHwnd = [IntPtr]::Zero
+                try {
+                    Add-Type -AssemblyName PresentationCore
+                    $csHwnd = (New-Object System.Windows.Interop.WindowInteropHelper($window)).Handle
+                } catch {}
 
                 for ($att = 1; $att -le 3 -and -not $saveDone; $att++) {
-                    try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id) } catch {}
-                    Start-Sleep -Milliseconds 600
+                    try {
+                        if ($user32CS) {
+                            # Minimize CloudSync briefly so it doesn't block focus switch
+                            if ($csHwnd -ne [IntPtr]::Zero) {
+                                $user32CS::ShowWindow($csHwnd, 6) | Out-Null   # SW_MINIMIZE = 6
+                            }
+                            Start-Sleep -Milliseconds 150
+                            $user32CS::SetForegroundWindow($mseProc.MainWindowHandle) | Out-Null
+                        } else {
+                            try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id) } catch {}
+                        }
+                    } catch {}
+
+                    Start-Sleep -Milliseconds 500
                     $fg = if ($user32CS) { $user32CS::GetForegroundWindow() } else { $mseProc.MainWindowHandle }
                     if ($fg -eq $mseProc.MainWindowHandle) {
                         [System.Windows.Forms.SendKeys]::SendWait("^s")
@@ -687,6 +711,14 @@ try {
                             if ($setFile.LastWriteTime -gt $preTs) { $saveDone = $true; break }
                         }
                     }
+
+                    # Restore CloudSync window
+                    try {
+                        if ($user32CS -and $csHwnd -ne [IntPtr]::Zero) {
+                            $user32CS::ShowWindow($csHwnd, 9) | Out-Null  # SW_RESTORE = 9
+                        }
+                    } catch {}
+
                     if (-not $saveDone -and $att -lt 3) { Start-Sleep -Milliseconds 400 }
                 }
 
