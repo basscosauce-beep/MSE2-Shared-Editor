@@ -464,15 +464,20 @@ $cleanParts    = $rawCardText -split "(?m)^(?=keyword:|version_control:|apprenti
 $cleanCardText = ($cleanParts | Where-Object { $_ -ne "" -and $_ -notmatch "^(keyword|version_control|apprentice_code):" }) -join ""
 
 # Bug 3 fix: preserve the version_control: and apprentice_code: trailing blocks
-# that MSE2 appends at the end of the set file. These are distinct from keyword:
-# blocks and from card content -- they're stripped by cleanCardText above but were
-# never re-appended, so every sync silently dropped them.
-# We take them from the cloud version (authoritative source after git reset --hard).
+# that MSE2 appends at the very end of the set file (after all cards).
+# Strategy: find the position of the last "card:" in cloudContent, take everything
+# after that card block ends (i.e. past the first top-level non-card block boundary),
+# and filter for version_control:/apprentice_code: entries only.
+# This avoids false positives from any card whose body text contains these keywords.
 $trailingMetaBlocks = ""
-$cloudTrailParts = $cloudContent -split "(?m)^(?=version_control:|apprentice_code:)"
-if ($cloudTrailParts.Count -gt 1) {
-    # Collect all version_control: and apprentice_code: top-level blocks
-    $trailingMetaBlocks = ($cloudTrailParts | Where-Object { $_ -match "^(version_control|apprentice_code):" }) -join ""
+$lastCardPos = $cloudContent.LastIndexOf("`ncard:")
+if ($lastCardPos -ge 0) {
+    $afterLastCard = $cloudContent.Substring($lastCardPos)
+    # Find where the trailing metadata starts (first top-level keyword:/version_control:/apprentice_code:)
+    $trailMatch = [regex]::Match($afterLastCard, "(?m)^(version_control:|apprentice_code:)", [System.Text.RegularExpressions.RegexOptions]::Multiline)
+    if ($trailMatch.Success) {
+        $trailingMetaBlocks = $afterLastCard.Substring($trailMatch.Index)
+    }
 }
 
 $mergedContent = $cloudHeaderNoKw + $mergedKwText + $cleanCardText + $trailingMetaBlocks

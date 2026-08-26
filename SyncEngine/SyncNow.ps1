@@ -526,9 +526,18 @@ if ($cloudSetFile) {
     $safeUser      = $userName -replace '[\\/:*?"<>|]', '_'
     $setDir        = [System.IO.Path]::GetDirectoryName($cloudSetFile.FullName)
     $lastKnownFile = "$setDir\last_known_$safeUser.txt"
-    # Save-LastKnown was defined inside MergeSetFile.ps1 which was dot-sourced above
-    Save-LastKnown -SetFilePath $cloudSetFile.FullName -KnownFile $lastKnownFile
-    Write-Host "Hash baseline updated after creator fill." -ForegroundColor DarkGray
+    # Save-LastKnown is defined in MergeSetFile.ps1 (dot-sourced during Step 3 when
+    # a local backup exists). If backup was skipped/failed, dot-source just for helpers
+    # using dummy paths that cause it to return early before doing any merge work.
+    if (-not (Get-Command Save-LastKnown -ErrorAction SilentlyContinue)) {
+        $dummyPath = [System.IO.Path]::GetTempFileName()
+        . "$PSScriptRoot\MergeSetFile.ps1" -LocalBackup $dummyPath -CloudFile $dummyPath -UserName $userName
+        Remove-Item $dummyPath -Force -ErrorAction SilentlyContinue
+    }
+    if (Get-Command Save-LastKnown -ErrorAction SilentlyContinue) {
+        Save-LastKnown -SetFilePath $cloudSetFile.FullName -KnownFile $lastKnownFile
+        Write-Host "Hash baseline updated after creator fill." -ForegroundColor DarkGray
+    }
 }
 
 
