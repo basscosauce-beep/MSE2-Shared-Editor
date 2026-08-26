@@ -77,7 +77,7 @@ class MSEMenuAddon {
             if (GetMenuItemID(hMenu, i) == SETTINGS_ID) return;
         }
         AppendMenu(hMenu, MF_SEPARATOR, 0,           null);
-        AppendMenu(hMenu, MF_STRING,    9999,         "v4.0");
+        AppendMenu(hMenu, MF_STRING,    9999,         "v4.1");
         AppendMenu(hMenu, MF_STRING,    CLOUDSYNC_ID, "\u2601 Cloud Sync");
         AppendMenu(hMenu, MF_STRING,    GOALS_ID,     "\uD83D\uDCCA Goals");
         AppendMenu(hMenu, MF_STRING,    GRAVEYARD_ID, "\u2620 Graveyard");
