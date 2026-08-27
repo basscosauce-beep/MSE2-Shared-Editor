@@ -662,72 +662,36 @@ try {
             if ($mseProc) {
                 $lastCheckedText.Text = "Saving..."
                 $window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Render, [action]{})
+                Add-Type -AssemblyName Microsoft.VisualBasic
                 Add-Type -AssemblyName System.Windows.Forms
 
-                # P/Invoke SetForegroundWindow + GetForegroundWindow.
-                # IMPORTANT: All Win32 calls (SetForegroundWindow, SendKeys, Sleep) run on a
-                # background Thread so the WPF message pump (UI thread) stays alive.
-                # Calling blocking Win32 APIs directly on the WPF dispatcher thread causes
-                # the window to freeze and can deadlock with Windows' own message routing.
+                # Load GetForegroundWindow so we can verify focus actually landed on MSE2
+                # before sending Ctrl+S (AppActivate returns true even when blocked by
+                # Windows' foreground-stealing prevention).
                 $user32CS = $null
                 try {
-                    $user32CS = Add-Type -MemberDefinition @'
-[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-'@ -Name "Win32FG3" -Namespace "MSECSSync3" -PassThru -ErrorAction SilentlyContinue
+                    $user32CS = Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();' `
+                        -Name "Win32FGX" -Namespace "MSECSyncX" -PassThru -ErrorAction SilentlyContinue
                 } catch {}
 
                 $preTs    = $setFile.LastWriteTime
                 $saveDone = $false
 
-                # Run the focus+save attempt on a background thread, then wait for it
-                $mseProcRef   = $mseProc
-                $setFileRef   = $setFile
-                $preTsRef     = $preTs
-                $user32CSRef  = $user32CS
-                $saveResult   = [System.Collections.Concurrent.ConcurrentDictionary[string,bool]]::new()
-                $saveResult["done"] = $false
+                for ($att = 1; $att -le 3 -and -not $saveDone; $att++) {
+                    try { [Microsoft.VisualBasic.Interaction]::AppActivate($mseProc.Id) } catch {}
+                    Start-Sleep -Milliseconds 600
 
-                $bgThread = [System.Threading.Thread]::new([System.Threading.ThreadStart]{
-                    for ($att = 1; $att -le 3 -and -not $saveResult["done"]; $att++) {
-                        try {
-                            if ($user32CSRef) {
-                                # Direct SetForegroundWindow works here because CloudSync
-                                # is/was the foreground process, so Windows lets it reassign.
-                                $user32CSRef::SetForegroundWindow($mseProcRef.MainWindowHandle) | Out-Null
-                            } else {
-                                try { Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.Interaction]::AppActivate($mseProcRef.Id) } catch {}
-                            }
-                        } catch {}
-
-                        [System.Threading.Thread]::Sleep(600)
-                        $fg = if ($user32CSRef) { $user32CSRef::GetForegroundWindow() } else { $mseProcRef.MainWindowHandle }
-                        if ($fg -eq $mseProcRef.MainWindowHandle) {
-                            [System.Windows.Forms.SendKeys]::SendWait("^s")
-                            for ($sw = 0; $sw -lt 14; $sw++) {
-                                [System.Threading.Thread]::Sleep(300)
-                                $setFileRef.Refresh()
-                                if ($setFileRef.LastWriteTime -gt $preTsRef) {
-                                    $saveResult["done"] = $true
-                                    break
-                                }
-                            }
-                        }
-                        if (-not $saveResult["done"] -and $att -lt 3) {
-                            [System.Threading.Thread]::Sleep(400)
+                    $fg = if ($user32CS) { $user32CS::GetForegroundWindow() } else { $mseProc.MainWindowHandle }
+                    if ($fg -eq $mseProc.MainWindowHandle) {
+                        [System.Windows.Forms.SendKeys]::SendWait("^s")
+                        for ($sw = 0; $sw -lt 14; $sw++) {
+                            Start-Sleep -Milliseconds 300
+                            $setFile.Refresh()
+                            if ($setFile.LastWriteTime -gt $preTs) { $saveDone = $true; break }
                         }
                     }
-                })
-                $bgThread.IsBackground = $true
-                $bgThread.Start()
-                # Pump the WPF message queue while waiting (keeps UI responsive)
-                $waited = 0
-                while ($bgThread.IsAlive -and $waited -lt 15000) {
-                    $window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{})
-                    [System.Threading.Thread]::Sleep(100)
-                    $waited += 100
+                    if (-not $saveDone -and $att -lt 3) { Start-Sleep -Milliseconds 400 }
                 }
-                $saveDone = $saveResult["done"]
 
                 if (-not $saveDone -and $setFile.LastWriteTime -le $preTs) {
                     $saveWarning = $true   # diff may be incomplete -- shown as banner below
