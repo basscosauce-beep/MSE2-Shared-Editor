@@ -20,18 +20,31 @@ $env:GIT_TERMINAL_PROMPT = "0"
 $env:GIT_ASKPASS = "echo"
 $repoDir = (Resolve-Path "$PSScriptRoot\..").Path
 
-# Resolve set file path — prefer the one tracked in git (not local-only files MSE2 created)
-$_allSetFiles = @(Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
-    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" })
-$setFile = $null
-if ($_allSetFiles.Count -eq 1) {
-    $setFile = $_allSetFiles[0]
-} elseif ($_allSetFiles.Count -gt 1) {
-    $_trackedNames = (& $gitCmd -C $repoDir ls-tree -r --name-only origin/main -- "Shared-Set/" 2>$null) |
-        Where-Object { $_ -like "*.mse-set" } | ForEach-Object { [System.IO.Path]::GetFileName($_) }
-    $setFile = $_allSetFiles | Where-Object { $_trackedNames -contains $_.Name } | Select-Object -First 1
-    if (-not $setFile) { $setFile = $_allSetFiles[0] }
+# ---------------------------------------------------------------------------
+# Helper: find the .mse-set that is actually tracked in git.
+# Uses "git ls-files" (local index -- no fetch required) so it works before
+# the first fetch and even when origin/main hasn't been downloaded yet.
+# When multiple .mse-set files exist in the folder (e.g. hawkiesicon.mse-set
+# was left behind by MSE2 opening a different project), this ensures we always
+# operate on the correct shared set file.
+# ---------------------------------------------------------------------------
+function Get-TrackedSetFile {
+    param([string]$Dir, [string]$Git)
+    $all = @(Get-ChildItem "$Dir\Shared-Set" -Recurse -Filter "*.mse-set" |
+        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" })
+    if ($all.Count -eq 0) { return $null }
+    if ($all.Count -eq 1) { return $all[0] }
+    # Multiple files found -- ask git which one is tracked in the index
+    $trackedNames = (& $Git -C $Dir ls-files "Shared-Set/" 2>$null) |
+        Where-Object { $_ -like "*.mse-set" -and $_ -notlike "*_pre_sync_backups*" } |
+        ForEach-Object { [System.IO.Path]::GetFileName($_) }
+    $match = $all | Where-Object { $trackedNames -contains $_.Name } | Select-Object -First 1
+    if ($match) { return $match }
+    return $all[0]   # last-resort fallback
 }
+
+# Resolve set file path up front (used in multiple places below)
+$setFile = Get-TrackedSetFile -Dir $repoDir -Git $gitCmd
 
 if ($mseProc) {
     try { $mseExePath = $mseProc.MainModule.FileName } catch {}
@@ -177,16 +190,8 @@ if ($branch -ne "main") {
 # the first process already captured the backup before git reset)
 # ---------------------------------------------------------------
 if (-not $handoffMode) {
-    # Re-resolve set file (same logic as top-of-script: prefer git-tracked file)
-    $_bkAllSet = @(Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
-        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" })
-    if ($_bkAllSet.Count -eq 1) { $setFile = $_bkAllSet[0] }
-    elseif ($_bkAllSet.Count -gt 1) {
-        $_bkTracked = (& $gitCmd -C $repoDir ls-tree -r --name-only origin/main -- "Shared-Set/" 2>$null) |
-            Where-Object { $_ -like "*.mse-set" } | ForEach-Object { [System.IO.Path]::GetFileName($_) }
-        $setFile = $_bkAllSet | Where-Object { $_bkTracked -contains $_.Name } | Select-Object -First 1
-        if (-not $setFile) { $setFile = $_bkAllSet[0] }
-    }
+    # Re-resolve set file using the same helper (prefers git-tracked file)
+    $setFile = Get-TrackedSetFile -Dir $repoDir -Git $gitCmd
     $localBackupPath = $null
     if ($setFile -and (Test-Path $setFile.FullName)) {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -261,12 +266,9 @@ Write-Host "Downloading latest cards from friends..." -ForegroundColor Yellow
 & $gitCmd -C $repoDir @credBypass fetch origin *>$null
 & $gitCmd -C $repoDir reset --hard origin/main *>$null
 
-# Bug 2 fix: resolve $cloudSetFile unconditionally here (after reset --hard brings
-# the latest cloud set into the working tree) so every subsequent step has it,
-# regardless of handoff mode or whether the local backup succeeded.
-$cloudSetFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
-    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" } |
-    Select-Object -First 1
+# Resolve $cloudSetFile after reset --hard (now holds latest cloud state).
+# Use Get-TrackedSetFile so untracked files (hawkiesicon.mse-set etc.) are skipped.
+$cloudSetFile = Get-TrackedSetFile -Dir $repoDir -Git $gitCmd
 
 # ---------------------------------------------------------------
 # Resolve install root (parent of SyncEngine)
