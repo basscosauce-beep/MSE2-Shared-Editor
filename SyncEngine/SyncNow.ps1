@@ -20,10 +20,18 @@ $env:GIT_TERMINAL_PROMPT = "0"
 $env:GIT_ASKPASS = "echo"
 $repoDir = (Resolve-Path "$PSScriptRoot\..").Path
 
-# Resolve set file path up front (used in multiple places below)
-$setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
-    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" } |
-    Select-Object -First 1
+# Resolve set file path — prefer the one tracked in git (not local-only files MSE2 created)
+$_allSetFiles = @(Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
+    Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" })
+$setFile = $null
+if ($_allSetFiles.Count -eq 1) {
+    $setFile = $_allSetFiles[0]
+} elseif ($_allSetFiles.Count -gt 1) {
+    $_trackedNames = (& $gitCmd -C $repoDir ls-tree -r --name-only origin/main -- "Shared-Set/" 2>$null) |
+        Where-Object { $_ -like "*.mse-set" } | ForEach-Object { [System.IO.Path]::GetFileName($_) }
+    $setFile = $_allSetFiles | Where-Object { $_trackedNames -contains $_.Name } | Select-Object -First 1
+    if (-not $setFile) { $setFile = $_allSetFiles[0] }
+}
 
 if ($mseProc) {
     try { $mseExePath = $mseProc.MainModule.FileName } catch {}
@@ -169,9 +177,16 @@ if ($branch -ne "main") {
 # the first process already captured the backup before git reset)
 # ---------------------------------------------------------------
 if (-not $handoffMode) {
-    $setFile = Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
-        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" } |
-        Select-Object -First 1
+    # Re-resolve set file (same logic as top-of-script: prefer git-tracked file)
+    $_bkAllSet = @(Get-ChildItem "$repoDir\Shared-Set" -Recurse -Filter "*.mse-set" |
+        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*_pre_sync_backups*" })
+    if ($_bkAllSet.Count -eq 1) { $setFile = $_bkAllSet[0] }
+    elseif ($_bkAllSet.Count -gt 1) {
+        $_bkTracked = (& $gitCmd -C $repoDir ls-tree -r --name-only origin/main -- "Shared-Set/" 2>$null) |
+            Where-Object { $_ -like "*.mse-set" } | ForEach-Object { [System.IO.Path]::GetFileName($_) }
+        $setFile = $_bkAllSet | Where-Object { $_bkTracked -contains $_.Name } | Select-Object -First 1
+        if (-not $setFile) { $setFile = $_bkAllSet[0] }
+    }
     $localBackupPath = $null
     if ($setFile -and (Test-Path $setFile.FullName)) {
         Add-Type -AssemblyName System.IO.Compression.FileSystem

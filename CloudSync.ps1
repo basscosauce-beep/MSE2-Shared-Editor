@@ -26,10 +26,20 @@ try {
     $myName = if (Test-Path $creatorFile) { (Get-Content $creatorFile -Raw).Trim() } else { "Unknown" }
     $safeUser = $myName -replace '[\\/:*?"<>|]', '_'
 
-    # Find set file (exclude backups)
-    $setFile = Get-ChildItem "$appData\Shared-Set" -Recurse -Filter "*.mse-set" |
-        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*\_pre_sync_backups\*" } |
-        Select-Object -First 1
+    # Find set file — prefer the one tracked in git (not a local-only file MSE2 created)
+    $allSetFiles = @(Get-ChildItem "$appData\Shared-Set" -Recurse -Filter "*.mse-set" |
+        Where-Object { $_.Name -notlike "*.bak" -and $_.FullName -notlike "*\_pre_sync_backups\*" })
+    $setFile = $null
+    if ($allSetFiles.Count -eq 1) {
+        $setFile = $allSetFiles[0]
+    } elseif ($allSetFiles.Count -gt 1) {
+        # Multiple .mse-set files found — ask git which one is tracked on origin/main
+        $trackedNames = (& "$appData\mingit\cmd\git.exe" -C $appData ls-tree -r --name-only origin/main -- "Shared-Set/" 2>$null) |
+            Where-Object { $_ -like "*.mse-set" } |
+            ForEach-Object { [System.IO.Path]::GetFileName($_) }
+        $setFile = $allSetFiles | Where-Object { $trackedNames -contains $_.Name } | Select-Object -First 1
+        if (-not $setFile) { $setFile = $allSetFiles[0] }   # fallback
+    }
     if (-not $setFile) { throw "Could not find the shared set file." }
 
     $setDir      = $setFile.DirectoryName
