@@ -618,18 +618,60 @@ $writer.Dispose()
 # 3. Local-only images that had a collision are written under the new name
 $writtenNames = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
 
-# Cloud images first
+# Build a set of time_created values for shared cards where LOCAL version won the merge.
+# These cards' images must come from the local backup, not from cloud.
+# (For cloud-winner shared cards and cloud-only cards, cloud images are authoritative.)
+$localWinnerTCs = New-Object System.Collections.Generic.HashSet[string]
+foreach ($card in $mergedCards) {
+    $cardTc = if ($card -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
+    if (-not $cardTc) { continue }
+    if ($cloudMap.Contains($cardTc) -and $localMap.Contains($cardTc)) {
+        # Shared card: check which version is in the merged result
+        # If the merged text matches the local version, local won
+        $localBlock = ($localMap[$cardTc] -replace "\r\n","`n") -replace "\r","`n"
+        $mergedBlock = ($card -replace "\r\n","`n") -replace "\r","`n"
+        if ($localBlock.Trim() -eq $mergedBlock.Trim()) {
+            $localWinnerTCs.Add($cardTc) | Out-Null
+        }
+    }
+}
+
+# Build lookup: imgFile -> list of time_created values of local-winner shared cards that use it
+$localWinnerImgMap = @{}
+foreach ($tc in $localWinnerTCs) {
+    $block = $localMap[$tc]
+    foreach ($img in (Get-CardImageFiles $block)) {
+        if (-not $localWinnerImgMap.ContainsKey($img)) {
+            $localWinnerImgMap[$img] = [System.Collections.Generic.List[string]]::new()
+        }
+        $localWinnerImgMap[$img].Add($tc)
+    }
+}
+
+# Cloud images first — but SKIP images exclusively claimed by local-winner shared cards
+# (those will be written from local below, with the correct edited bytes)
 foreach ($imgName in $cloudImageMap.Keys) {
+    $localWinnersNeedThis = $localWinnerImgMap.ContainsKey($imgName)
+    $cloudWinnersNeedThis = $cloudImageOwners.ContainsKey($imgName) -and
+                            ($cloudImageOwners[$imgName] | Where-Object { -not $localWinnerTCs.Contains($_) }).Count -gt 0
+    $isNewFromCloud = $cloudImageOwners.ContainsKey($imgName) -and
+                      ($cloudImageOwners[$imgName] | Where-Object { -not $localMap.Contains($_) }).Count -gt 0
+
+    if ($localWinnersNeedThis -and -not $cloudWinnersNeedThis -and -not $isNewFromCloud) {
+        # This image is only referenced by local-winner cards — write from local below
+        continue
+    }
     $dst = $dstZip.CreateEntry($imgName, [System.IO.Compression.CompressionLevel]::Optimal)
     $s = $cloudImageMap[$imgName].Open(); $d = $dst.Open()
     $s.CopyTo($d); $s.Dispose(); $d.Dispose()
     $writtenNames.Add($imgName) | Out-Null
 }
 
-# Local images: skip those already written by cloud; handle renames
+# Local images: handle all cases
 foreach ($imgName in $localImageMap.Keys) {
     if ($writtenNames.Contains($imgName)) {
-        # Collision - write under the renamed name if this local img was renamed
+        # Name already written from cloud (cloud-winner shared card or new-from-cloud card).
+        # Only write renamed version if local card was renamed due to collision.
         if ($localRenameMap.ContainsKey($imgName)) {
             $newName = $localRenameMap[$imgName]
             $dst = $dstZip.CreateEntry($newName, [System.IO.Compression.CompressionLevel]::Optimal)
@@ -637,13 +679,23 @@ foreach ($imgName in $localImageMap.Keys) {
             $s.CopyTo($d); $s.Dispose(); $d.Dispose()
             $writtenNames.Add($newName) | Out-Null
         }
-        # else: cloud version already written, local version is for a shared card - skip
+        # else: shared card where cloud-winner's image was already written — skip local
     } else {
-        # No collision - local-only image, write as-is
-        $dst = $dstZip.CreateEntry($imgName, [System.IO.Compression.CompressionLevel]::Optimal)
-        $s = $localImageMap[$imgName].Open(); $d = $dst.Open()
-        $s.CopyTo($d); $s.Dispose(); $d.Dispose()
-        $writtenNames.Add($imgName) | Out-Null
+        # Not yet written: either local-winner shared card image, local-only new card image,
+        # or local image that cloud doesn't have. Write from local.
+        if ($localRenameMap.ContainsKey($imgName)) {
+            # Local-only card that was renamed to avoid collision
+            $newName = $localRenameMap[$imgName]
+            $dst = $dstZip.CreateEntry($newName, [System.IO.Compression.CompressionLevel]::Optimal)
+            $s = $localImageMap[$imgName].Open(); $d = $dst.Open()
+            $s.CopyTo($d); $s.Dispose(); $d.Dispose()
+            $writtenNames.Add($newName) | Out-Null
+        } else {
+            $dst = $dstZip.CreateEntry($imgName, [System.IO.Compression.CompressionLevel]::Optimal)
+            $s = $localImageMap[$imgName].Open(); $d = $dst.Open()
+            $s.CopyTo($d); $s.Dispose(); $d.Dispose()
+            $writtenNames.Add($imgName) | Out-Null
+        }
     }
 }
 
