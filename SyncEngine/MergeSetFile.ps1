@@ -1,4 +1,4 @@
-# MergeSetFile.ps1 - Smart card merge with:
+﻿# MergeSetFile.ps1 - Smart card merge with:
 #   - Tombstone-based permanent deletion tracking
 #   - Last-known snapshot (with content hashes) to detect changes per user
 #   - Change-wins conflict resolution: edited > unedited, creator as tiebreaker
@@ -490,17 +490,19 @@ $tempZipPath = [System.IO.Path]::GetTempFileName() + ".mse-set"
 try {
 
 # ===========================================================================
-# IMAGE COLLISION FIX
-# MSE2 assigns imageN.png based on card position in the LOCAL file.
-# Two users creating cards "at the same time" (before syncing) can end up
-# with different cards both claiming the same imageN.png filename.
-# Routing alone can't fix this - we must RENAME one of the colliding files
-# and update the card's image: field in the text to match.
+# IMAGE HANDLING
+# ===========================================================================
+# For each card in the merged result we know exactly which zip its TEXT came from
+# (local backup vs cloud). Images must come from the SAME source as the card text
+# so they stay in sync.
 #
-# Strategy:
-#   - Cloud cards keep their image filenames (cloud is authoritative).
-#   - Local-only cards that collide with a cloud filename get a new unique name.
-#   - The card text block is updated to reference the new filename.
+# Source rules (mirrors the merge pass):
+#   Local-only card  → local zip
+#   Cloud-only card  → cloud zip
+#   Shared card      → whichever had the newer time_modified (local wins on tie)
+#
+# Collision: two cards from DIFFERENT sources reference the same image filename.
+# We rename the local-source card's reference so the zip stays consistent.
 # ===========================================================================
 
 # Helper: extract all image field values from a card block
@@ -515,29 +517,36 @@ function Get-CardImageFiles {
     return $imgs
 }
 
-# Build lookup: imageFile -> list of time_created values that reference it
-# Split into cloud-owned and local-only cards
-$cloudImageOwners = @{}   # imgFile -> [tc, ...]  (cards that exist in cloud)
-$localOnlyImgMap  = @{}   # imgFile -> [tc, ...]  (cards only in local, not cloud)
-
+# -- Step 1: determine which zip each merged card's images come from ----------
+$cardSource = @{}   # time_created -> "local" | "cloud"
 foreach ($card in $mergedCards) {
-    $cardTc = if ($card -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
-    if (-not $cardTc) { continue }
-    $isCloudCard = $cloudMap.Contains($cardTc)
-    $imgFiles = Get-CardImageFiles $card
-    foreach ($img in $imgFiles) {
-        if ($isCloudCard) {
-            if (-not $cloudImageOwners.ContainsKey($img)) { $cloudImageOwners[$img] = [System.Collections.Generic.List[string]]::new() }
-            $cloudImageOwners[$img].Add($cardTc)
-        } else {
-            if (-not $localOnlyImgMap.ContainsKey($img)) { $localOnlyImgMap[$img] = [System.Collections.Generic.List[string]]::new() }
-            $localOnlyImgMap[$img].Add($cardTc)
-        }
+    $tc = if ($card -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
+    if (-not $tc) { continue }
+    if (-not $cloudMap.Contains($tc)) {
+        $cardSource[$tc] = "local"        # local-only new card
+    } elseif (-not $localMap.Contains($tc)) {
+        $cardSource[$tc] = "cloud"        # cloud-only new card
+    } else {
+        # Shared card — same time_modified comparison used in the merge pass
+        $lTM = if ($localMap[$tc] -match "(?m)^\s*time_modified:\s*([^\r\n]+)") { $matches[1].Trim() } else { "" }
+        $cTM = if ($cloudMap[$tc] -match "(?m)^\s*time_modified:\s*([^\r\n]+)") { $matches[1].Trim() } else { "" }
+        $cardSource[$tc] = if ([string]::Compare($lTM, $cTM, [System.StringComparison]::Ordinal) -ge 0) { "local" } else { "cloud" }
     }
 }
 
-# Find all image filenames that exist in BOTH the cloud's zip AND local's zip
-# (used to detect which names the cloud "owns")
+# -- Step 2: build imgFile -> list of {TC, Source} assignments ----------------
+$imgAssign = @{}   # imgFile -> List of @{TC; Source}
+foreach ($card in $mergedCards) {
+    $tc = if ($card -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
+    if (-not $tc -or -not $cardSource.ContainsKey($tc)) { continue }
+    $src = $cardSource[$tc]
+    foreach ($img in (Get-CardImageFiles $card)) {
+        if (-not $imgAssign.ContainsKey($img)) { $imgAssign[$img] = [System.Collections.Generic.List[hashtable]]::new() }
+        $imgAssign[$img].Add(@{TC=$tc; Source=$src})
+    }
+}
+
+# -- Step 3: open zips --------------------------------------------------------
 $cloudZip = [System.IO.Compression.ZipFile]::OpenRead($CloudFile)
 $localZip = [System.IO.Compression.ZipFile]::OpenRead($LocalBackup)
 $dstZip   = [System.IO.Compression.ZipFile]::Open($tempZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
@@ -547,64 +556,67 @@ $localImageMap  = @{}
 foreach ($entry in ($cloudZip.Entries | Where-Object { $_.Name -ne "set" })) { $cloudImageMap[$entry.FullName] = $entry }
 foreach ($entry in ($localZip.Entries  | Where-Object { $_.Name -ne "set" })) { $localImageMap[$entry.FullName]  = $entry }
 
-# Determine collision: local-only card uses a filename that a cloud card also uses
-# -> rename the local card's reference
-$cardTextRenames = @{}  # cardTc -> @{ oldImg -> newImg }
-$allExistingNames = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
-foreach ($k in $cloudImageMap.Keys) { $allExistingNames.Add($k) | Out-Null }
-foreach ($k in $localImageMap.Keys)  { $allExistingNames.Add($k) | Out-Null }
+# -- Step 4: detect genuine collisions and rename local-source refs -----------
+# A collision is when the SAME filename is needed by BOTH a cloud-source card
+# AND a local-source card (they carry different image bytes for the same name).
+$cardTextRenames = @{}   # tc -> @{ oldName -> newName }
+$allUsedNames = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($k in $cloudImageMap.Keys) { $allUsedNames.Add($k) | Out-Null }
+foreach ($k in $localImageMap.Keys)  { $allUsedNames.Add($k) | Out-Null }
 
-foreach ($img in @($localOnlyImgMap.Keys)) {
-    # Collision: local-only card claims an image filename that cloud also has
-    if ($cloudImageMap.ContainsKey($img)) {
-        foreach ($localTc in $localOnlyImgMap[$img]) {
-            # Generate a unique new name that doesn't exist in either zip
-            $base = [System.IO.Path]::GetFileNameWithoutExtension($img)
-            $ext  = [System.IO.Path]::GetExtension($img)
-            $counter = 1
-            do {
-                $newName = "${base}_m${counter}${ext}"
-                $counter++
-            } while ($allExistingNames.Contains($newName))
-            $allExistingNames.Add($newName) | Out-Null
+foreach ($imgName in @($imgAssign.Keys)) {
+    $assignments = $imgAssign[$imgName]
+    $hasCloud = ($assignments | Where-Object { $_.Source -eq "cloud" }).Count -gt 0
+    $hasLocal = ($assignments | Where-Object { $_.Source -eq "local" }).Count -gt 0
+    if (-not ($hasCloud -and $hasLocal)) { continue }   # no collision
 
-            if (-not $cardTextRenames.ContainsKey($localTc)) { $cardTextRenames[$localTc] = @{} }
-            $cardTextRenames[$localTc][$img] = $newName
-            Write-Host "[Merge] Image collision on '$img' - local card ($localTc) renamed to '$newName'" -ForegroundColor Yellow
-        }
+    # Rename all local-source cards that reference this image
+    foreach ($a in ($assignments | Where-Object { $_.Source -eq "local" })) {
+        $tc = $a.TC
+        $base = [System.IO.Path]::GetFileNameWithoutExtension($imgName)
+        $ext  = [System.IO.Path]::GetExtension($imgName)
+        $counter = 1
+        do { $newName = "${base}_m${counter}${ext}"; $counter++ } while ($allUsedNames.Contains($newName))
+        $allUsedNames.Add($newName) | Out-Null
+        if (-not $cardTextRenames.ContainsKey($tc)) { $cardTextRenames[$tc] = @{} }
+        $cardTextRenames[$tc][$imgName] = $newName
+        Write-Host "[Merge] Image collision '$imgName' — local card ($tc) renamed to '$newName'" -ForegroundColor Yellow
     }
 }
 
-# Apply renames to card text blocks (update image: field values)
+# -- Step 5: apply renames to card text and rebuild mergedContent -------------
 if ($cardTextRenames.Count -gt 0) {
     $updatedCards = [System.Collections.Generic.List[string]]::new()
     foreach ($card in $mergedCards) {
-        $cardTc = if ($card -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
-        if ($cardTc -and $cardTextRenames.ContainsKey($cardTc)) {
-            foreach ($rename in $cardTextRenames[$cardTc].GetEnumerator()) {
-                # Replace the image filename only in image: field lines, not anywhere else
+        $tc = if ($card -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
+        if ($tc -and $cardTextRenames.ContainsKey($tc)) {
+            foreach ($rename in $cardTextRenames[$tc].GetEnumerator()) {
                 $card = $card -replace "(?m)^(\s*(?:image|image_2|mainframe_image|mainframe_image_2)\s*:\s*)$([regex]::Escape($rename.Key))", "`${1}$($rename.Value)"
             }
         }
         $updatedCards.Add($card)
     }
     $mergedCards = $updatedCards
-    Write-Host "[Merge] Applied $($cardTextRenames.Count) image rename(s) to card text." -ForegroundColor Yellow
-
-    # Rebuild mergedContent with the updated card text
+    # Rebuild image assignments after renames
+    $imgAssign = @{}
+    foreach ($card in $mergedCards) {
+        $tc = if ($card -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
+        if (-not $tc -or -not $cardSource.ContainsKey($tc)) { continue }
+        $src = $cardSource[$tc]
+        foreach ($img in (Get-CardImageFiles $card)) {
+            if (-not $imgAssign.ContainsKey($img)) { $imgAssign[$img] = [System.Collections.Generic.List[hashtable]]::new() }
+            $imgAssign[$img].Add(@{TC=$tc; Source=$src})
+        }
+    }
+    # Rebuild mergedContent
     $rawCardText   = $mergedCards -join ""
     $cleanParts    = $rawCardText -split "(?m)^(?=keyword:|version_control:|apprentice_code:)"
     $cleanCardText = ($cleanParts | Where-Object { $_ -ne "" -and $_ -notmatch "^(keyword|version_control|apprentice_code):" }) -join ""
     $mergedContent = $cloudHeaderNoKw + $mergedKwText + $cleanCardText + $trailingMetaBlocks
+    Write-Host "[Merge] Applied $($cardTextRenames.Count) image rename(s) to card text." -ForegroundColor Yellow
 }
 
-# Build the renamed-images lookup: localImg -> newName (for writing into dst zip)
-$localRenameMap = @{}  # original local img name -> new name to write as
-foreach ($renames in $cardTextRenames.Values) {
-    foreach ($r in $renames.GetEnumerator()) { $localRenameMap[$r.Key] = $r.Value }
-}
-
-# Write merged "set" text entry (rewrite with updated card text if renames happened)
+# -- Step 6: write "set" text entry -------------------------------------------
 $setEntry  = $dstZip.CreateEntry("set", [System.IO.Compression.CompressionLevel]::Optimal)
 $setStream = $setEntry.Open()
 $writer    = New-Object System.IO.StreamWriter($setStream, [System.Text.Encoding]::UTF8)
@@ -612,90 +624,40 @@ $writer.Write($mergedContent)
 $writer.Flush()
 $writer.Dispose()
 
-# Write image files:
-# 1. All cloud images keep their names (cloud is authoritative)
-# 2. Local-only images that had no collision keep their names
-# 3. Local-only images that had a collision are written under the new name
+# -- Step 7: write image files from correct source zip ------------------------
 $writtenNames = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
 
-# Build a set of time_created values for shared cards where LOCAL version won the merge.
-# These cards' images must come from the local backup, not from cloud.
-# (For cloud-winner shared cards and cloud-only cards, cloud images are authoritative.)
-$localWinnerTCs = New-Object System.Collections.Generic.HashSet[string]
-foreach ($card in $mergedCards) {
-    $cardTc = if ($card -match "(?m)^\s*time_created:\s*([^\r\n]+)") { $matches[1].Trim() } else { $null }
-    if (-not $cardTc) { continue }
-    if ($cloudMap.Contains($cardTc) -and $localMap.Contains($cardTc)) {
-        # Shared card: check which version is in the merged result
-        # If the merged text matches the local version, local won
-        $localBlock = ($localMap[$cardTc] -replace "\r\n","`n") -replace "\r","`n"
-        $mergedBlock = ($card -replace "\r\n","`n") -replace "\r","`n"
-        if ($localBlock.Trim() -eq $mergedBlock.Trim()) {
-            $localWinnerTCs.Add($cardTc) | Out-Null
-        }
+# Write images that are referenced by cards in the merged set
+foreach ($imgName in $imgAssign.Keys) {
+    if ($writtenNames.Contains($imgName)) { continue }
+    $assignments = $imgAssign[$imgName]
+    # Source: if any card wants cloud bytes, use cloud (means cloud-only or cloud-winner card)
+    # If ALL cards want local bytes, use local
+    $useCloud = ($assignments | Where-Object { $_.Source -eq "cloud" }).Count -gt 0
+    $srcMap = if ($useCloud) { $cloudImageMap } else { $localImageMap }
+    $altMap = if ($useCloud) { $localImageMap  } else { $cloudImageMap  }
+    $entry  = if ($srcMap.ContainsKey($imgName)) { $srcMap[$imgName] } elseif ($altMap.ContainsKey($imgName)) { $altMap[$imgName] } else { $null }
+    if ($entry) {
+        $dst = $dstZip.CreateEntry($imgName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $s = $entry.Open(); $d = $dst.Open(); $s.CopyTo($d); $s.Dispose(); $d.Dispose()
+        $writtenNames.Add($imgName) | Out-Null
     }
 }
 
-# Build lookup: imgFile -> list of time_created values of local-winner shared cards that use it
-$localWinnerImgMap = @{}
-foreach ($tc in $localWinnerTCs) {
-    $block = $localMap[$tc]
-    foreach ($img in (Get-CardImageFiles $block)) {
-        if (-not $localWinnerImgMap.ContainsKey($img)) {
-            $localWinnerImgMap[$img] = [System.Collections.Generic.List[string]]::new()
-        }
-        $localWinnerImgMap[$img].Add($tc)
-    }
-}
-
-# Cloud images first — but SKIP images exclusively claimed by local-winner shared cards
-# (those will be written from local below, with the correct edited bytes)
+# Also preserve any cloud images not referenced by any card (orphans — keep to avoid data loss)
 foreach ($imgName in $cloudImageMap.Keys) {
-    $localWinnersNeedThis = $localWinnerImgMap.ContainsKey($imgName)
-    $cloudWinnersNeedThis = $cloudImageOwners.ContainsKey($imgName) -and
-                            ($cloudImageOwners[$imgName] | Where-Object { -not $localWinnerTCs.Contains($_) }).Count -gt 0
-    $isNewFromCloud = $cloudImageOwners.ContainsKey($imgName) -and
-                      ($cloudImageOwners[$imgName] | Where-Object { -not $localMap.Contains($_) }).Count -gt 0
-
-    if ($localWinnersNeedThis -and -not $cloudWinnersNeedThis -and -not $isNewFromCloud) {
-        # This image is only referenced by local-winner cards — write from local below
-        continue
+    if (-not $writtenNames.Contains($imgName)) {
+        $dst = $dstZip.CreateEntry($imgName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $s = $cloudImageMap[$imgName].Open(); $d = $dst.Open(); $s.CopyTo($d); $s.Dispose(); $d.Dispose()
+        $writtenNames.Add($imgName) | Out-Null
     }
-    $dst = $dstZip.CreateEntry($imgName, [System.IO.Compression.CompressionLevel]::Optimal)
-    $s = $cloudImageMap[$imgName].Open(); $d = $dst.Open()
-    $s.CopyTo($d); $s.Dispose(); $d.Dispose()
-    $writtenNames.Add($imgName) | Out-Null
 }
-
-# Local images: handle all cases
+# And local images not referenced by any card (orphans from local — keep too)
 foreach ($imgName in $localImageMap.Keys) {
-    if ($writtenNames.Contains($imgName)) {
-        # Name already written from cloud (cloud-winner shared card or new-from-cloud card).
-        # Only write renamed version if local card was renamed due to collision.
-        if ($localRenameMap.ContainsKey($imgName)) {
-            $newName = $localRenameMap[$imgName]
-            $dst = $dstZip.CreateEntry($newName, [System.IO.Compression.CompressionLevel]::Optimal)
-            $s = $localImageMap[$imgName].Open(); $d = $dst.Open()
-            $s.CopyTo($d); $s.Dispose(); $d.Dispose()
-            $writtenNames.Add($newName) | Out-Null
-        }
-        # else: shared card where cloud-winner's image was already written — skip local
-    } else {
-        # Not yet written: either local-winner shared card image, local-only new card image,
-        # or local image that cloud doesn't have. Write from local.
-        if ($localRenameMap.ContainsKey($imgName)) {
-            # Local-only card that was renamed to avoid collision
-            $newName = $localRenameMap[$imgName]
-            $dst = $dstZip.CreateEntry($newName, [System.IO.Compression.CompressionLevel]::Optimal)
-            $s = $localImageMap[$imgName].Open(); $d = $dst.Open()
-            $s.CopyTo($d); $s.Dispose(); $d.Dispose()
-            $writtenNames.Add($newName) | Out-Null
-        } else {
-            $dst = $dstZip.CreateEntry($imgName, [System.IO.Compression.CompressionLevel]::Optimal)
-            $s = $localImageMap[$imgName].Open(); $d = $dst.Open()
-            $s.CopyTo($d); $s.Dispose(); $d.Dispose()
-            $writtenNames.Add($imgName) | Out-Null
-        }
+    if (-not $writtenNames.Contains($imgName)) {
+        $dst = $dstZip.CreateEntry($imgName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $s = $localImageMap[$imgName].Open(); $d = $dst.Open(); $s.CopyTo($d); $s.Dispose(); $d.Dispose()
+        $writtenNames.Add($imgName) | Out-Null
     }
 }
 
@@ -706,9 +668,8 @@ foreach ($imgName in $localImageMap.Keys) {
     Copy-Item $tempZipPath $CloudFile -Force
     Write-Host "[Merge] Merge complete!" -ForegroundColor Green
 
-    # Bug #2 fix: Save last_known AFTER the merged zip is written to disk.
-    # Previously this was saved from the pre-merge cloud file (wrong baseline).
-    # Now it reflects the actual merged result so next sync's change-detection is accurate.
+    # Save last_known AFTER the merged zip is written to disk so next sync's
+    # change-detection baseline reflects the actual merged result.
     Save-LastKnown -SetFilePath $CloudFile -KnownFile $lastKnownFile
 }
 catch {
@@ -717,3 +678,4 @@ catch {
 finally {
     if (Test-Path $tempZipPath) { Remove-Item $tempZipPath -Force -ErrorAction SilentlyContinue }
 }
+
