@@ -718,8 +718,23 @@ try {
             # Get the set path relative to repo
             $setRelPath = $setFile.FullName.Substring($appData.TrimEnd('\').Length + 1).Replace("\", "/")
 
-            # Extract cloud (origin/main) version into a temp file
-            $cloudBlob = (& $gitExe -C $appData rev-parse "origin/main:$setRelPath" 2>$null).Trim()
+            # Extract cloud (origin/main) version into a temp file.
+            # If the local set file has a different name than the git-tracked one
+            # (e.g. MSE2 saved it as "... latest save.mse-set"), rev-parse returns nothing.
+            # Fall back to finding any .mse-set tracked in origin/main under Shared-Set/.
+            $cloudBlob = ("" + (& $gitExe -C $appData rev-parse "origin/main:$setRelPath" 2>$null)).Trim()
+            if (-not $cloudBlob) {
+                # Local filename not in git — find the actual tracked .mse-set
+                $trackedSetPath = (& $gitExe -C $appData ls-tree -r --name-only origin/main -- "Shared-Set/" 2>$null) |
+                    Where-Object { $_ -like "*.mse-set" -and $_ -notlike "*_pre_sync_backups*" } |
+                    Select-Object -First 1
+                if ($trackedSetPath) {
+                    $cloudBlob = ("" + (& $gitExe -C $appData rev-parse "origin/main:$trackedSetPath" 2>$null)).Trim()
+                    if ($cloudBlob) {
+                        Write-Host "[CloudSync] Local set filename '$($setFile.Name)' differs from git-tracked '$([System.IO.Path]::GetFileName($trackedSetPath))' -- using git version for diff." -ForegroundColor DarkYellow
+                    }
+                }
+            }
             $cloudTmp  = "$env:TEMP\cloudsync_cloud_$([System.IO.Path]::GetRandomFileName()).mse-set"
             if ($cloudBlob) {
                 cmd /c ("`"" + $gitExe + "`" -C `"" + $appData + "`" cat-file blob " + $cloudBlob + " > `"" + $cloudTmp + "`"") 2>$null
